@@ -120,7 +120,7 @@ python message.py
 http://127.0.0.1:5000
 ```
 
-### API KEY
+## API KEY
 Replace the GROQ API key with your own API key generated from GORQ website-
 https://console.groq.com/keys
 
@@ -128,7 +128,7 @@ https://console.groq.com/keys
   <img src="assets/api.png" width="600">
 </p>
 
-#### Access from Internet:
+## Access from Internet:
 To access the running server from anywhere from the world, beyond the wifi, one may use ngrok.
 ##### Follow these Steps:
 - Login: https://dashboard.ngrok.com/login
