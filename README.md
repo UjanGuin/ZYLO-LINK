@@ -120,6 +120,14 @@ python message.py
 http://127.0.0.1:5000
 ```
 
+### API KEY
+Replace the GROQ API key with your own API key generated from GORQ website-
+https://console.groq.com/keys
+
+<p align="center">
+  <img src="assets/api.png" width="600">
+</p>
+
 #### Access from Internet:
 To access the running server from anywhere from the world, beyond the wifi, one may use ngrok.
 ##### Follow these Steps:
@@ -145,6 +153,7 @@ ngrok config add-authtoken $YOUR_AUTHTOKEN
 ngrok http 50051
 ```
 (50051 is the port. One can change it as wanted, but also ensure to change it in python code.)
+
 <p align="center">
   <img src="assets/port.png" width="600">
 </p>
