@@ -45,6 +45,30 @@ AI_BOT_ID = "AI_ASSISTANT"
 AI_BOT_NAME = "Assistant"
 AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png" # Robotic profile pic
 
+def get_chat_memory(room_id: str) -> str:
+    """
+    Returns the stored AI summary for a given chat room.
+    If no memory exists yet, returns an empty string.
+    """
+
+    if not room_id:
+        return ""
+
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT summary FROM ai_chat_memory WHERE room_id = ?",
+                (room_id,)
+            )
+            row = c.fetchone()
+            return row[0] if row and row[0] else ""
+
+    except sqlite3.Error as e:
+        # Hard fail protection — AI must NEVER crash chat
+        print(f"[AI MEMORY ERROR] {e}")
+        return ""
+
 # ---------------------------
 # Database Management (SQLite)
 # ---------------------------
@@ -53,37 +77,84 @@ DB_FILE = 'ZYLO_chat.db'
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        # Users table
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                     (user_id TEXT PRIMARY KEY, username TEXT, password TEXT, avatar_url TEXT,
-                      ai_usage INTEGER DEFAULT 0, groq_key TEXT)''')
-        # Chats mapping
-        c.execute('''CREATE TABLE IF NOT EXISTS chat_participants
-                     (room_id TEXT, user_id TEXT, chat_name TEXT, 
-                      PRIMARY KEY (room_id, user_id))''')
-        # Messages table
-        c.execute('''CREATE TABLE IF NOT EXISTS messages
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT, 
-                      sender_id TEXT, msg_type TEXT, content TEXT, filename TEXT,
-                      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                      status TEXT DEFAULT 'sent')''')
-        
-        # Migrations for existing DBs
+
+        # ---------------- USERS ----------------
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT,
+                password TEXT,
+                avatar_url TEXT,
+                ai_usage INTEGER DEFAULT 0,
+                groq_key TEXT
+            )
+        ''')
+
+        # ---------------- CHAT PARTICIPANTS ----------------
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS chat_participants (
+                room_id TEXT,
+                user_id TEXT,
+                chat_name TEXT,
+                PRIMARY KEY (room_id, user_id)
+            )
+        ''')
+
+        # ---------------- MESSAGES ----------------
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT,
+                sender_id TEXT,
+                msg_type TEXT,
+                content TEXT,
+                filename TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'sent'
+            )
+        ''')
+
+        # ---------------- AI CHAT MEMORY (PER ROOM) ----------------
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS ai_chat_memory (
+                room_id TEXT PRIMARY KEY,
+                summary TEXT,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # ---------------- AI GLOBAL CONTEXT (SINGLE ROW) ----------------
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS ai_global_context (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                summary TEXT,
+                last_updated DATETIME
+            )
+        ''')
+
+        # Ensure single global row exists
+        c.execute("INSERT OR IGNORE INTO ai_global_context (id, summary, last_updated) VALUES (1, '', CURRENT_TIMESTAMP)")
+
+        # ---------------- INDEXES (PERFORMANCE CRITICAL) ----------------
+        c.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_time ON messages(room_id, id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)")
+
+        # ---------------- MIGRATIONS (SAFE FOR OLD DBs) ----------------
         try:
             c.execute("SELECT status FROM messages LIMIT 1")
         except sqlite3.OperationalError:
             c.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
-        
+
         try:
             c.execute("SELECT ai_usage FROM users LIMIT 1")
         except sqlite3.OperationalError:
-            print("Migrating DB: Adding AI columns...")
             c.execute("ALTER TABLE users ADD COLUMN ai_usage INTEGER DEFAULT 0")
             c.execute("ALTER TABLE users ADD COLUMN groq_key TEXT")
 
         conn.commit()
 
 init_db()
+
 
 # ---------------------------
 # Helper Functions
@@ -1323,44 +1394,113 @@ def on_send(data):
     msg_type = data.get('type', 'text')
     fname = data.get('filename', '')
     sender_id = data['sender_id']
-    
-    if not room_id or not sender_id: return
 
-    # Save User Message
+    if not room_id or not sender_id:
+        return
+
+    # ---------------- SAVE USER MESSAGE ----------------
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content, filename, status) VALUES (?, ?, ?, ?, ?, ?)", 
-                  (room_id, sender_id, msg_type, content, fname, 'sent'))
+        c.execute("""
+            INSERT INTO messages (room_id, sender_id, msg_type, content, filename, status)
+            VALUES (?, ?, ?, ?, ?, 'sent')
+        """, (room_id, sender_id, msg_type, content, fname))
         conn.commit()
-    
-    now = datetime.datetime.now().strftime('%H:%M')
-    emit('message', {'sender_id': sender_id, 'type': msg_type, 'content': content, 'filename': fname, 'time': now, 'room_id': room_id, 'status': 'sent'}, room=room_id)
 
-    # --- AI LOGIC ---
-    if msg_type == 'text' and content.startswith('@Assistant'):
-        prompt = content.replace('@Assistant', '').strip()
-        
+    now = datetime.datetime.now().strftime('%H:%M')
+    emit('message', {
+        'sender_id': sender_id,
+        'type': msg_type,
+        'content': content,
+        'filename': fname,
+        'time': now,
+        'room_id': room_id,
+        'status': 'sent'
+    }, room=room_id)
+
+    # ---------------- UPDATE GLOBAL CONTEXT (NON-PRIVATE) ----------------
+    if msg_type == 'text' and not content.startswith('@Assistant'):
+        abstract = content[:200]  # HARD LIMIT, NO RAW DATA
+
         with sqlite3.connect(DB_FILE) as conn:
             c = conn.cursor()
+            c.execute("SELECT summary FROM ai_global_context WHERE id=1")
+            old = c.fetchone()[0] or ""
+
+            merged = (old + " | " + abstract).strip()[-2000:]
+
+            c.execute("""
+                UPDATE ai_global_context
+                SET summary=?, last_updated=CURRENT_TIMESTAMP
+                WHERE id=1
+            """, (merged,))
+            conn.commit()
+
+    # ---------------- AI LOGIC ----------------
+    if msg_type == 'text' and content.startswith('@Assistant'):
+        user_prompt = content.replace('@Assistant', '').strip()
+
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+
+            # ----- USER USAGE -----
             c.execute("SELECT ai_usage, groq_key FROM users WHERE user_id=?", (sender_id,))
-            row = c.fetchone()
-            usage = row[0] if row[0] else 0
-            user_key = row[1]
-            
-            # Determine which key to use
+            usage, user_key = c.fetchone()
+
             active_key = GROQ_DEFAULT_KEY
             if usage >= 5:
                 if not user_key:
                     emit('ai_limit_reached', room=sender_id)
                     return
                 active_key = user_key
-            
-            # Increment Usage
+
             c.execute("UPDATE users SET ai_usage=? WHERE user_id=?", (usage + 1, sender_id))
+
+            # ----- CHAT MEMORY -----
+            c.execute("SELECT summary FROM ai_chat_memory WHERE room_id=?", (room_id,))
+            row = c.fetchone()
+            chat_memory = row[0] if row else ""
+
+            # ----- RECENT MESSAGES -----
+            c.execute("""
+                SELECT sender_id, content
+                FROM messages
+                WHERE room_id=?
+                ORDER BY id DESC
+                LIMIT 10
+            """, (room_id,))
+            recent_msgs = reversed(c.fetchall())
+
+            recent_text = "\n".join(
+                f"{sid}: {txt}" for sid, txt in recent_msgs if txt
+            )
+
+            # ----- GLOBAL CONTEXT -----
+            c.execute("SELECT summary FROM ai_global_context WHERE id=1")
+            global_context = c.fetchone()[0] or ""
+
             conn.commit()
 
-            # Call AI
-            eventlet.spawn(handle_ai_response, room_id, prompt, active_key)
+        # ----- FINAL AI PROMPT -----
+        final_prompt = f"""
+SYSTEM:
+You are a private assistant. Never reveal private data.
+
+PLATFORM CONTEXT:
+{global_context}
+
+CHAT MEMORY:
+{chat_memory}
+
+RECENT MESSAGES:
+{recent_text}
+
+USER REQUEST:
+{user_prompt}
+""".strip()
+
+        eventlet.spawn(handle_ai_response, room_id, final_prompt, active_key)
+
 
 def handle_ai_response(room_id, prompt, api_key):
     ai_reply = get_ai_response(prompt, api_key)
@@ -1394,6 +1534,13 @@ def on_avatar_update(data):
     emit('user_avatar_updated', data, broadcast=True)
 
 if __name__ == "__main__":
-    print("💎 ZYLO^LINK Ultimate Running...")
+    print("\n💎 ZYLO^LINK Ultimate Running Successfully")
+    print("🌐 Open this URL in your browser:")
+    print("👉 http://localhost:5000")
+    print("👉 http://127.0.0.1:5000")
+    print("\n🟢 Server is live. Press CTRL+C to stop.\n")
+
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+
+
 
