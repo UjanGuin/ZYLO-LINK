@@ -1,24 +1,16 @@
+import eventlet
+eventlet.monkey_patch()
 import os
 import random
 import string
 import sqlite3
 import datetime
 import mimetypes
-import eventlet
+import requests
+import json
 from werkzeug.utils import secure_filename
-
-# Patch for async support ensures real-time performance
-eventlet.monkey_patch()
 from flask import Flask, render_template_string, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
-
-# Try importing OpenAI for Groq (Graceful fallback if not installed, though required for AI)
-try:
-    from openai import OpenAI
-    AI_AVAILABLE = True
-except ImportError:
-    print("Warning: 'openai' library not found. AI features will not work.")
-    AI_AVAILABLE = False
 
 # ---------------------------
 # Configuration & Setup
@@ -38,36 +30,12 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # ---------------------------
 # AI Configuration
 # ---------------------------
-GROQ_DEFAULT_KEY = "PASTE_YOUR_API_KEY"
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_DEFAULT_KEY = "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"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 AI_MODEL = "llama-3.1-8b-instant"
 AI_BOT_ID = "AI_ASSISTANT"
 AI_BOT_NAME = "Assistant"
-AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png" # Robotic profile pic
-
-def get_chat_memory(room_id: str) -> str:
-    """
-    Returns the stored AI summary for a given chat room.
-    If no memory exists yet, returns an empty string.
-    """
-
-    if not room_id:
-        return ""
-
-    try:
-        with sqlite3.connect(DB_FILE) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT summary FROM ai_chat_memory WHERE room_id = ?",
-                (room_id,)
-            )
-            row = c.fetchone()
-            return row[0] if row and row[0] else ""
-
-    except sqlite3.Error as e:
-        # Hard fail protection — AI must NEVER crash chat
-        print(f"[AI MEMORY ERROR] {e}")
-        return ""
+AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png"
 
 # ---------------------------
 # Database Management (SQLite)
@@ -78,7 +46,7 @@ def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
 
-        # ---------------- USERS ----------------
+        # Users
         c.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
@@ -90,7 +58,7 @@ def init_db():
             )
         ''')
 
-        # ---------------- CHAT PARTICIPANTS ----------------
+        # Participants
         c.execute('''
             CREATE TABLE IF NOT EXISTS chat_participants (
                 room_id TEXT,
@@ -100,7 +68,7 @@ def init_db():
             )
         ''')
 
-        # ---------------- MESSAGES ----------------
+        # Messages
         c.execute('''
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,7 +82,7 @@ def init_db():
             )
         ''')
 
-        # ---------------- AI CHAT MEMORY (PER ROOM) ----------------
+        # AI Memory
         c.execute('''
             CREATE TABLE IF NOT EXISTS ai_chat_memory (
                 room_id TEXT PRIMARY KEY,
@@ -123,7 +91,7 @@ def init_db():
             )
         ''')
 
-        # ---------------- AI GLOBAL CONTEXT (SINGLE ROW) ----------------
+        # AI Global Context
         c.execute('''
             CREATE TABLE IF NOT EXISTS ai_global_context (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -131,15 +99,13 @@ def init_db():
                 last_updated DATETIME
             )
         ''')
-
-        # Ensure single global row exists
         c.execute("INSERT OR IGNORE INTO ai_global_context (id, summary, last_updated) VALUES (1, '', CURRENT_TIMESTAMP)")
 
-        # ---------------- INDEXES (PERFORMANCE CRITICAL) ----------------
+        # Indexes
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_time ON messages(room_id, id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)")
 
-        # ---------------- MIGRATIONS (SAFE FOR OLD DBs) ----------------
+        # Migrations
         try:
             c.execute("SELECT status FROM messages LIMIT 1")
         except sqlite3.OperationalError:
@@ -166,24 +132,42 @@ def get_unique_room_id(user1, user2):
     return "_".join(sorted([user1, user2]))
 
 def get_ai_response(prompt, api_key):
-    if not AI_AVAILABLE:
-        return "Error: Server missing 'openai' library."
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": AI_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a helpful AI assistant in a group chat. Keep answers concise. Identify users correctly based on the context provided."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 1024
+    }
+
     try:
-        client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
-        response = client.chat.completions.create(
-            model=AI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a helpful AI assistant in a group chat. Keep answers concise."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1024
-        )
-        return response.choices[0].message.content
+        response = requests.post(GROQ_BASE_URL, headers=headers, json=payload)
+        
+        # Check for 401 specifically
+        if response.status_code == 401:
+            return "AI Error: Error code: 401 - Invalid API Key"
+            
+        response_data = response.json()
+        
+        if "error" in response_data:
+             return f"AI Error: {response_data['error'].get('message', 'Unknown error')}"
+
+        if "choices" in response_data and len(response_data["choices"]) > 0:
+            return response_data["choices"][0]["message"]["content"]
+        
+        return "AI Error: No response from model."
+
     except Exception as e:
         return f"AI Error: {str(e)}"
 
 # ---------------------------
-# HTML/CSS/JS Frontend (Embedded)
+# HTML/CSS/JS Frontend
 # ---------------------------
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -419,7 +403,6 @@ HTML_PAGE = """
             border: 1px solid rgba(255,255,255,0.1);
         }
         
-        /* AI Message Style */
         .message.ai-msg {
             border: 1px solid rgba(0, 242, 255, 0.6);
             box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
@@ -448,6 +431,29 @@ HTML_PAGE = """
             transition: 0.2s;
         }
         .file-card:hover { background: rgba(0,0,0,0.4); }
+
+        /* Typing Indicator */
+        .typing-indicator-row {
+            display: flex; gap: 10px; align-items: center; margin-bottom: 15px; margin-left: 5px;
+            animation: fadeIn 0.3s;
+        }
+        .typing-bubble {
+            background: rgba(255,255,255,0.1);
+            padding: 10px 15px;
+            border-radius: 15px;
+            border-bottom-left-radius: 2px;
+            display: flex; gap: 5px;
+            align-items: center;
+        }
+        .dot {
+            width: 6px; height: 6px; background: rgba(255,255,255,0.5); border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         /* --- Input Area --- */
         .chat-input-area {
@@ -508,7 +514,7 @@ HTML_PAGE = """
         .mention-item img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
         .mention-item.assistant { color: var(--accent-color); font-weight: bold; }
 
-        /* Attachment Preview Chip */
+        /* Attachment Preview */
         .attachment-preview {
             display: none;
             align-items: center;
@@ -602,8 +608,8 @@ HTML_PAGE = """
     <div id="api-key-dialog" class="dialog-overlay">
         <div class="auth-card">
             <h3><i class="fas fa-robot"></i> AI Limit Reached</h3>
-            <p>You have used your 5 free AI messages.</p>
-            <p style="font-size:0.8rem; opacity:0.8;">To continue using the assistant seamlessly, please enter your Groq API Key.</p>
+            <p>You have used your 5 free AI messages, OR your provided key was invalid.</p>
+            <p style="font-size:0.8rem; opacity:0.8;">To continue using the assistant seamlessly, please enter a valid Groq API Key.</p>
             <a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent-color); font-size:0.8rem; margin-bottom:10px; display:block;">Get API Key Here <i class="fas fa-external-link-alt"></i></a>
             <input type="text" id="groq-key-input" class="glass-input" placeholder="gsk_..." style="font-size:0.8rem;">
             <div style="display:flex; gap:10px;">
@@ -680,6 +686,7 @@ HTML_PAGE = """
                 </div>
 
                 <div id="messages"></div>
+                <div id="typing-container" style="padding: 0 20px;"></div>
 
                 <form id="msg-form" class="chat-input-area">
                     <!-- Progress Bar -->
@@ -723,6 +730,7 @@ HTML_PAGE = """
         let currentRoomUsers = [];
         let pendingAttachment = null;
         let cropper = null;
+        let typingTimeout = null;
 
         // --- AUTHENTICATION ---
         async function authenticate() {
@@ -768,8 +776,61 @@ HTML_PAGE = """
             document.getElementById('my-avatar').src = url;
         }
 
-        // --- MENTION SYSTEM ---
+        // --- TYPING INDICATOR ---
         const msgInput = document.getElementById('msg-input');
+        
+        msgInput.addEventListener('input', () => {
+            if(currentRoom) {
+                socket.emit('typing', { room_id: currentRoom, user_id: currentUser.id });
+                
+                if(typingTimeout) clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => {
+                    socket.emit('stop_typing', { room_id: currentRoom, user_id: currentUser.id });
+                }, 1000);
+            }
+        });
+
+        socket.on('typing_status', (data) => {
+            if(data.room_id !== currentRoom || data.user_id === currentUser.id) return;
+            
+            const container = document.getElementById('typing-container');
+            const typingId = `typing-${data.user_id}`;
+            let existing = document.getElementById(typingId);
+            
+            if(data.is_typing) {
+                if(!existing) {
+                    // Find user avatar
+                    let avatarUrl = "https://ui-avatars.com/api/?background=random&name=User";
+                    if(data.user_id === 'AI_ASSISTANT') {
+                        avatarUrl = "https://img.icons8.com/fluency/96/bot.png";
+                    } else {
+                        const user = currentRoomUsers.find(u => u.id === data.user_id);
+                        if(user) avatarUrl = user.avatar || `https://ui-avatars.com/api/?name=${user.name}`;
+                    }
+
+                    const row = document.createElement('div');
+                    row.id = typingId;
+                    row.className = 'typing-indicator-row';
+                    row.innerHTML = `
+                        <div class="msg-avatar" style="width:25px; height:25px;">
+                            <img src="${avatarUrl}" style="width:100%; height:100%; object-fit:cover;">
+                        </div>
+                        <div class="typing-bubble">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                        </div>
+                    `;
+                    container.appendChild(row);
+                    
+                    // Scroll to bottom if near
+                    const msgs = document.getElementById('messages');
+                    msgs.scrollTop = msgs.scrollHeight;
+                }
+            } else {
+                if(existing) existing.remove();
+            }
+        });
+
+        // --- MENTION SYSTEM ---
         const mentionPopup = document.getElementById('mention-popup');
         
         msgInput.addEventListener('keyup', (e) => {
@@ -777,7 +838,6 @@ HTML_PAGE = """
             const lastChar = val.slice(-1);
             
             if (lastChar === '@' || (val.includes('@') && !val.includes(' '))) {
-                // Determine search query after @
                 const parts = val.split('@');
                 const query = parts[parts.length - 1].toLowerCase();
                 showMentionPopup(query);
@@ -790,20 +850,15 @@ HTML_PAGE = """
             mentionPopup.innerHTML = '';
             let hasMatch = false;
 
-            // Add Assistant option
             if ('assistant'.includes(query)) {
                 const div = document.createElement('div');
                 div.className = 'mention-item assistant';
-                div.innerHTML = `
-                    <img src="https://img.icons8.com/fluency/96/bot.png">
-                    <span>Assistant</span>
-                `;
+                div.innerHTML = `<img src="https://img.icons8.com/fluency/96/bot.png"><span>Assistant</span>`;
                 div.onclick = () => insertMention('Assistant');
                 mentionPopup.appendChild(div);
                 hasMatch = true;
             }
 
-            // Add Users
             currentRoomUsers.forEach(user => {
                 if(user.id !== currentUser.id && user.name.toLowerCase().includes(query)) {
                     const div = document.createElement('div');
@@ -818,11 +873,7 @@ HTML_PAGE = """
                 }
             });
 
-            if (hasMatch) {
-                mentionPopup.style.display = 'flex';
-            } else {
-                mentionPopup.style.display = 'none';
-            }
+            mentionPopup.style.display = hasMatch ? 'flex' : 'none';
         }
 
         function insertMention(name) {
@@ -837,6 +888,14 @@ HTML_PAGE = """
         // --- API KEY HANDLING ---
         socket.on('ai_limit_reached', () => {
             openDialog('api-key-dialog');
+        });
+        
+        // Listen for message-based errors to trigger popup
+        socket.on('message', (msg) => {
+            if(msg.sender_id === 'AI_ASSISTANT' && msg.content.includes("Error code: 401")) {
+                 openDialog('api-key-dialog');
+            }
+            // Normal handling continues below
         });
 
         function saveApiKey() {
@@ -905,6 +964,7 @@ HTML_PAGE = """
             }
             currentRoom = null; 
             document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('typing-container').innerHTML = ''; // clear typing
         }
 
         // --- CHAT LOGIC ---
@@ -1003,6 +1063,8 @@ HTML_PAGE = """
             document.getElementById('empty-state').style.display = 'none';
             document.getElementById('active-chat').style.display = 'flex';
             document.getElementById('current-chat-name').innerText = name;
+            document.getElementById('typing-container').innerHTML = ''; // clear old typing status
+            
             let finalAvatar = avatarUrl || roomAvatars[roomId] || `https://ui-avatars.com/api/?name=${name}`;
             document.getElementById('current-chat-avatar').src = finalAvatar;
             document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
@@ -1053,6 +1115,9 @@ HTML_PAGE = """
                 avatarSrc = "https://img.icons8.com/fluency/96/bot.png";
             } else {
                 avatarSrc = roomAvatars[currentRoom] || `https://ui-avatars.com/api/?name=User`;
+                // Try to find exact user from room participants if available
+                const u = currentRoomUsers.find(x => x.id === msg.sender_id);
+                if(u && u.avatar) avatarSrc = u.avatar;
             }
 
             const avatarDiv = document.createElement('div');
@@ -1112,6 +1177,7 @@ HTML_PAGE = """
                 input.value = '';
             }
             mentionPopup.style.display = 'none';
+            socket.emit('stop_typing', { room_id: currentRoom, user_id: currentUser.id });
         });
 
         // --- FILE UPLOAD ---
@@ -1352,10 +1418,8 @@ def on_join(data):
         conn.commit()
         
         emit('messages_read', {'room_id': room_id}, room=room_id)
-        
-        # Send room participants for Mention logic
         users = get_room_participants(room_id)
-        emit('room_users', users, room=user_id) # Only to joiner
+        emit('room_users', users, room=user_id)
 
         c.execute("SELECT sender_id, msg_type, content, filename, timestamp, status FROM messages WHERE room_id=? ORDER BY id ASC", (room_id,))
         msgs = []
@@ -1368,6 +1432,17 @@ def on_join(data):
             msgs.append({'sender_id': r[0], 'type': r[1], 'content': r[2], 'filename': r[3], 'time': time_str, 'status': r[5]})
             
         emit('history', msgs)
+
+@socketio.on('typing')
+def on_typing(data):
+    # Broadcast to room except sender
+    emit('typing_status', {'room_id': data['room_id'], 'user_id': data['user_id'], 'is_typing': True}, 
+         room=data['room_id'], include_self=False)
+
+@socketio.on('stop_typing')
+def on_stop_typing(data):
+    emit('typing_status', {'room_id': data['room_id'], 'user_id': data['user_id'], 'is_typing': False}, 
+         room=data['room_id'], include_self=False)
 
 @socketio.on('mark_read')
 def on_mark_read(data):
@@ -1398,7 +1473,7 @@ def on_send(data):
     if not room_id or not sender_id:
         return
 
-    # ---------------- SAVE USER MESSAGE ----------------
+    # Save User Message
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("""
@@ -1418,24 +1493,6 @@ def on_send(data):
         'status': 'sent'
     }, room=room_id)
 
-    # ---------------- UPDATE GLOBAL CONTEXT (NON-PRIVATE) ----------------
-    if msg_type == 'text' and not content.startswith('@Assistant'):
-        abstract = content[:200]  # HARD LIMIT, NO RAW DATA
-
-        with sqlite3.connect(DB_FILE) as conn:
-            c = conn.cursor()
-            c.execute("SELECT summary FROM ai_global_context WHERE id=1")
-            old = c.fetchone()[0] or ""
-
-            merged = (old + " | " + abstract).strip()[-2000:]
-
-            c.execute("""
-                UPDATE ai_global_context
-                SET summary=?, last_updated=CURRENT_TIMESTAMP
-                WHERE id=1
-            """, (merged,))
-            conn.commit()
-
     # ---------------- AI LOGIC ----------------
     if msg_type == 'text' and content.startswith('@Assistant'):
         user_prompt = content.replace('@Assistant', '').strip()
@@ -1443,7 +1500,7 @@ def on_send(data):
         with sqlite3.connect(DB_FILE) as conn:
             c = conn.cursor()
 
-            # ----- USER USAGE -----
+            # Check usage
             c.execute("SELECT ai_usage, groq_key FROM users WHERE user_id=?", (sender_id,))
             usage, user_key = c.fetchone()
 
@@ -1456,55 +1513,48 @@ def on_send(data):
 
             c.execute("UPDATE users SET ai_usage=? WHERE user_id=?", (usage + 1, sender_id))
 
-            # ----- CHAT MEMORY -----
-            c.execute("SELECT summary FROM ai_chat_memory WHERE room_id=?", (room_id,))
-            row = c.fetchone()
-            chat_memory = row[0] if row else ""
-
-            # ----- RECENT MESSAGES -----
+            # Fetch Recent Messages for Context
             c.execute("""
                 SELECT sender_id, content
                 FROM messages
                 WHERE room_id=?
                 ORDER BY id DESC
-                LIMIT 10
+                LIMIT 15
             """, (room_id,))
             recent_msgs = reversed(c.fetchall())
 
-            recent_text = "\n".join(
-                f"{sid}: {txt}" for sid, txt in recent_msgs if txt
-            )
+            # Construct history string
+            history_text = ""
+            for sid, txt in recent_msgs:
+                if txt:
+                    role_label = "Assistant" if sid == AI_BOT_ID else f"User {sid}"
+                    history_text += f"{role_label}: {txt}\n"
 
-            # ----- GLOBAL CONTEXT -----
-            c.execute("SELECT summary FROM ai_global_context WHERE id=1")
-            global_context = c.fetchone()[0] or ""
-
-            conn.commit()
-
-        # ----- FINAL AI PROMPT -----
+        # Final Prompt
         final_prompt = f"""
-SYSTEM:
-You are a private assistant. Never reveal private data.
+CONTEXT HISTORY:
+{history_text}
 
-PLATFORM CONTEXT:
-{global_context}
-
-CHAT MEMORY:
-{chat_memory}
-
-RECENT MESSAGES:
-{recent_text}
-
-USER REQUEST:
-{user_prompt}
+INSTRUCTION:
+You are participating in the chat above. 
+The current user (ID: {sender_id}) asked: "{user_prompt}"
+Reply specifically to this user, but you may reference the history if needed.
+Keep it helpful and concise.
 """.strip()
-
+        
+        # Start AI Typing Indicator
+        socketio.emit('typing_status', {'room_id': room_id, 'user_id': AI_BOT_ID, 'is_typing': True}, room=room_id)
+        
+        # Process asynchronously
         eventlet.spawn(handle_ai_response, room_id, final_prompt, active_key)
 
-
 def handle_ai_response(room_id, prompt, api_key):
+    # Simulate processing time slightly for realism/debounce
+    eventlet.sleep(0.5)
+    
     ai_reply = get_ai_response(prompt, api_key)
     
+    # Save & Emit AI Reply
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content, filename, status) VALUES (?, ?, ?, ?, ?, ?)", 
@@ -1512,6 +1562,11 @@ def handle_ai_response(room_id, prompt, api_key):
         conn.commit()
 
     now = datetime.datetime.now().strftime('%H:%M')
+    
+    # Stop Typing
+    socketio.emit('typing_status', {'room_id': room_id, 'user_id': AI_BOT_ID, 'is_typing': False}, room=room_id)
+    
+    # Send Message
     socketio.emit('message', {'sender_id': AI_BOT_ID, 'type': 'text', 'content': ai_reply, 'filename': '', 'time': now, 'room_id': room_id, 'status': 'sent'}, room=room_id)
 
 @socketio.on('rename_chat')
@@ -1535,12 +1590,6 @@ def on_avatar_update(data):
 
 if __name__ == "__main__":
     print("\n💎 ZYLO^LINK Ultimate Running Successfully")
-    print("🌐 Open this URL in your browser:")
-    print("👉 http://localhost:5000")
     print("👉 http://127.0.0.1:5000")
-    print("\n🟢 Server is live. Press CTRL+C to stop.\n")
-
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
-
-
 
