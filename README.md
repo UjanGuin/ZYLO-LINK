@@ -1,4 +1,4 @@
-# 💎 ZYLO LINK
+# ZYLO LINK
 
 <!-- BADGES -->
 
@@ -14,49 +14,57 @@
 ![Self Hosted](https://img.shields.io/badge/self--hosted-yes-blueviolet)
 ![WebSocket](https://img.shields.io/badge/websocket-enabled-yellow)
 ![UI](https://img.shields.io/badge/UI-glassmorphism-ff69b4)
+![AI](https://img.shields.io/badge/AI-Groq%20LLM-critical)
+![Termux](https://img.shields.io/badge/termux-supported-success)
 ![Contributions](https://img.shields.io/badge/contributions-welcome-orange)
 
-
+---
 
 ## 🚀 Overview
 
-ZYLO LINK is a fully self-hosted, real-time communication platform designed to demonstrate how modern chat systems can be built cleanly, efficiently, and independently using Python. The project combines a low-latency WebSocket backend with a premium, responsive frontend to deliver instant messaging, media sharing, and live user presence without relying on external cloud services or third-party APIs. Every component—from authentication and room management to file uploads and avatar synchronization—is handled locally, giving full control over data, performance, and deployment.
+**ZYLO LINK** is a fully self-hosted, real-time communication platform designed to demonstrate how modern chat systems can be built cleanly, efficiently, and independently using Python. It combines a low-latency WebSocket backend with a premium, responsive frontend to deliver instant messaging, media sharing, live presence, and AI-assisted conversations—without relying on external cloud services.
 
-Unlike traditional chat applications that depend on heavyweight stacks or managed services, ZYLO LINK is intentionally engineered as a single-file, zero-dependency deployment model (beyond Python libraries). The entire user interface is embedded directly into the backend, eliminating the need for separate template engines or static asset pipelines. This makes the system easy to run, audit, and extend, while still delivering a visually modern glassmorphism UI and real-time interactivity comparable to commercial messaging platforms.
+Unlike traditional chat applications that depend on managed platforms or heavyweight stacks, ZYLO LINK is intentionally engineered as a **single-file deployment architecture** (beyond standard Python libraries). The entire user interface—HTML, CSS, and JavaScript—is embedded directly inside the backend, eliminating external templates and static pipelines. This design keeps the system portable, auditable, and extremely fast to deploy while still offering a modern glassmorphism UI comparable to commercial chat platforms.
 
-At its core, ZYLO LINK serves both as a practical messaging solution and as a reference architecture for real-time systems. It showcases event-driven design using WebSockets, persistent state management with SQLite, and live synchronization of user data across multiple clients. The project is particularly suited for learning, experimentation, LAN deployments, and privacy-focused environments where full ownership of infrastructure is essential.
+ZYLO LINK also integrates an **AI assistant powered by Groq-hosted LLMs** using direct HTTP APIs instead of SDKs, ensuring compatibility with constrained environments such as Android (Termux). The project serves both as a production-ready private chat system and a reference architecture for real-time, event-driven applications.
 
-> **Private • Real-Time • Fully Controlled**
+> **Private • Real-Time • Self-Hosted • AI-Enhanced**
+
+---
+
+## 🖼️ Interface Preview
 
 <p align="center">
-  <img src="assets/ui1.png" width="700">
+  <img src="assets/ui1.png" width="800" alt="ZYLO LINK UI Preview 1">
 </p>
 
 <p align="center">
-  <img src="assets/ui2.png" width="700">
+  <img src="assets/ui2.png" width="800" alt="ZYLO LINK UI Preview 2">
 </p>
 
 <p align="center">
-  <img src="assets/ui3.png" width="700">
+  <img src="assets/ui3.png" width="800" alt="ZYLO LINK UI Preview 3">
 </p>
 
 <p align="center">
-  <img src="assets/ui4.png" width="700">
+  <img src="assets/ui4.png" width="800" alt="ZYLO LINK UI Preview 4">
 </p>
 
 ---
 
 ## ✨ Key Features
 
-* ⚡ Real-time messaging using WebSockets
-* 👥 Private & group chat rooms
-* 🖼️ Live avatar upload & instant synchronization
-* 📁 File & media sharing (images, videos, documents)
+* ⚡ Real-time messaging using WebSockets (Flask-SocketIO)
+* 👥 Private and group chat rooms
+* 🤖 Built-in AI Assistant powered by **Groq LLMs** (HTTP-based, SDK-free)
+* 🧠 Context-aware AI responses
+* 🖼️ Live avatar upload and synchronization
+* 📎 File & media sharing (images, videos, documents)
 * 💾 Persistent message storage using SQLite
-* 🔐 Local authentication (no third-party login)
+* 🔐 Local authentication (no OAuth, no third-party login)
 * 🎨 Ultra-premium glassmorphism UI
 * 📱 Fully responsive (desktop & mobile)
-* 🛠️ Fully embedded frontend (single-file deployment)
+* 🧩 Fully embedded frontend (single-file deployment)
 
 ---
 
@@ -69,6 +77,7 @@ At its core, ZYLO LINK serves both as a practical messaging solution and as a re
 * Flask-SocketIO
 * Eventlet (async networking)
 * SQLite
+* Requests (Groq API integration)
 
 ### Frontend
 
@@ -81,15 +90,16 @@ At its core, ZYLO LINK serves both as a practical messaging solution and as a re
 
 ## 📂 Project Structure
 
-```
+```text
 .
-├── message.py          # Complete backend + frontend
+├── message.py          # Complete backend + embedded frontend
 ├── uploads/            # Uploaded avatars & shared files
+├── assets/             # UI screenshots and media
 ├── ZYLO_chat.db        # SQLite database (auto-generated)
 └── README.md
 ```
 
-> ⚠️ No templates or static folders required. The UI is fully embedded.
+> ⚠️ No templates or static folders required. The UI is fully embedded in `message.py`.
 
 ---
 
@@ -105,7 +115,7 @@ cd ZYLO-LINK
 ### 2️⃣ Install Dependencies
 
 ```bash
-pip install flask flask-socketio eventlet werkzeug
+pip install flask flask-socketio eventlet werkzeug requests
 ```
 
 ### 3️⃣ Run the Application
@@ -116,57 +126,65 @@ python message.py
 
 ### 4️⃣ Open in Browser
 
-```
+```text
 http://127.0.0.1:5000
 ```
 
-## API KEY
-Replace the GROQ API key with your own API key generated from GORQ website-
-https://console.groq.com/keys
+---
+
+## 🔑 Groq API Key Setup
+
+ZYLO LINK uses **Groq LLMs** for AI-assisted chat. You must provide your own API key.
+
+1. Generate a key from:
+   [https://console.groq.com/keys](https://console.groq.com/keys)
+
+2. Export it as an environment variable:
+
+```bash
+export GROQ_API_KEY="your_groq_api_key_here"
+```
 
 <p align="center">
-  <img src="assets/api.png" width="600">
+  <img src="assets/api.png" width="600" alt="Groq API Key Setup">
 </p>
 
-## Access from Internet:
-To access the running server from anywhere from the world, beyond the wifi, one may use ngrok.
-##### Follow these Steps:
-- Login: https://dashboard.ngrok.com/login
-- Copy the Authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
-- To download ngrok paste in terminal:
+---
+
+## 🌐 Access From Internet (ngrok)
+
+To expose ZYLO LINK beyond your local network:
+
+1. Login: [https://dashboard.ngrok.com/login](https://dashboard.ngrok.com/login)
+
+2. Copy Authtoken: [https://dashboard.ngrok.com/get-started/your-authtoken](https://dashboard.ngrok.com/get-started/your-authtoken)
+
+3. Install ngrok:
+
 ```bash
 wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-```
-```bash
 tar -xvzf ngrok-v3-stable-linux-amd64.tgz
-```
-```bash
 sudo mv ngrok /usr/local/bin
 ```
-- To add the Authtoken, paste:
+
+4. Add your authtoken:
+
 ```bash
-ngrok config add-authtoken $YOUR_AUTHTOKEN
+ngrok config add-authtoken YOUR_AUTHTOKEN
 ```
-(Replace $YOUR_AUTHTOKEN with the copied Authtoken.)
-- Now paste:
+
+5. Start tunneling:
+
 ```bash
-ngrok http 50051
+ngrok http 5000
 ```
-(50051 is the port. One can change it as wanted, but also ensure to change it in python code.)
 
 <p align="center">
-  <img src="assets/port.png" width="600">
+  <img src="assets/port.png" width="600" alt="ngrok Port Configuration">
 </p>
 
-- After it, one will see output similar to:
-```bash
-Forwarding  https://xxxx-xxxx.ngrok-free.app -> http://localhost:50051
-```
-- Copy
-```https://xxxx-xxxx.ngrok-free.app```
-and paste at any browser to get started.
+> **Note:** ngrok URLs are temporary unless you use a paid plan.
 
-**Note:** The URL is not static.
 ---
 
 ## 🔐 Authentication Model
@@ -176,8 +194,8 @@ and paste at any browser to get started.
 * IDs are used to:
 
   * Start private chats
-  * Add users to group chats
-* No cloud authentication required
+  * Add members to group chats
+* No cloud-based authentication required
 
 ---
 
@@ -190,7 +208,7 @@ and paste at any browser to get started.
   * Chat renaming
   * Chat deletion
 * System-generated messages for chat events
-* Message history auto-load on join
+* Message history auto-loaded on room join
 
 ---
 
@@ -199,16 +217,16 @@ and paste at any browser to get started.
 * Inline image preview
 * Embedded video playback
 * Downloadable file cards
-* Upload progress bar
-* MIME-type based handling
+* Upload progress indicator
+* MIME-type–aware rendering
 
 ---
 
 ## 🖼️ Avatar System
 
 * Profile picture upload
-* Real-time avatar sync across chats
-* Cache-busting for instant updates
+* Real-time avatar updates across all chats
+* Cache-busting for instant refresh
 
 ---
 
@@ -217,7 +235,7 @@ and paste at any browser to get started.
 Edit inside `message.py`:
 
 ```python
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
 app.config['UPLOAD_FOLDER'] = 'uploads'
 ```
 
@@ -225,12 +243,12 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 
 ## 🛡️ Security Notes
 
-* Designed for local / trusted networks
+* Designed for local or trusted environments
 * Passwords are stored in plain text (prototype scope)
 * For production use:
 
-  * Add password hashing
-  * Enable HTTPS
+  * Add password hashing (bcrypt / argon2)
+  * Enable HTTPS (reverse proxy)
   * Harden file upload validation
 
 ---
@@ -242,9 +260,10 @@ ZYLO LINK can run on:
 * Local machines
 * LAN servers
 * VPS environments
-* Docker (recommended)
+* Android (Termux)
+* Docker containers
 
-No external services required.
+No external services are required beyond an optional Groq API key.
 
 ---
 
@@ -264,6 +283,6 @@ Part of the **ZYLO Ecosystem**
 
 ## ⭐ Final Words
 
-ZYLO LINK proves that **powerful real-time communication systems can be built independently**, without cloud lock-in or third-party dependencies.
+ZYLO LINK proves that **high-quality, real-time communication systems can be built independently**, without cloud lock-in or heavyweight frameworks.
 
-If this project helped you, consider starring ⭐ the repository.
+If this project helped you, consider giving it a ⭐ on GitHub.
