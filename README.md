@@ -139,15 +139,19 @@ ZYLO LINK uses **Groq LLMs** for AI-assisted chat. You must provide your own API
 1. Generate a key from:
    [https://console.groq.com/keys](https://console.groq.com/keys)
 
-2. Export it as an environment variable:
+2. Replace "paste_your_api_key_here" with your API key.
 
-```bash
-export GROQ_API_KEY="your_groq_api_key_here"
+```python
+# ---------------------------
+# AI Configuration
+# ---------------------------
+GROQ_DEFAULT_KEY = "paste_your_api_key_here"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+AI_MODEL = "llama-3.1-8b-instant"
+AI_BOT_ID = "AI_ASSISTANT"
+AI_BOT_NAME = "Assistant"
+AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png"
 ```
-
-<p align="center">
-  <img src="assets/api.png" width="600" alt="Groq API Key Setup">
-</p>
 
 ---
 
