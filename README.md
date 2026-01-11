@@ -179,9 +179,12 @@ ngrok config add-authtoken YOUR_AUTHTOKEN
 ngrok http 5000
 ```
 
-<p align="center">
-  <img src="assets/port.png" width="600" alt="ngrok Port Configuration">
-</p>
+```python
+if __name__ == "__main__":
+    print("\n💎 ZYLO LINK Ultimate Running Successfully")
+    print("👉 http://127.0.0.1:5000")
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+```
 
 > **Note:** ngrok URLs are temporary unless you use a paid plan.
 
