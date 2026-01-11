@@ -30,7 +30,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # ---------------------------
 # AI Configuration
 # ---------------------------
-GROQ_DEFAULT_KEY = "paste_your_api_key_here"
+GROQ_DEFAULT_KEY = "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"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 AI_MODEL = "llama-3.1-8b-instant"
 AI_BOT_ID = "AI_ASSISTANT"
@@ -175,7 +175,7 @@ HTML_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ZYLO^LINK</title>
+    <title>ZYLO LINK</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
@@ -1589,7 +1589,8 @@ def on_avatar_update(data):
     emit('user_avatar_updated', data, broadcast=True)
 
 if __name__ == "__main__":
-    print("\n💎 ZYLO^LINK Ultimate Running Successfully")
+    print("\n💎 ZYLO LINK Ultimate Running Successfully")
     print("👉 http://127.0.0.1:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+
 
