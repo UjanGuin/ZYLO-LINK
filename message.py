@@ -30,12 +30,15 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # ---------------------------
 # AI Configuration
 # ---------------------------
-GROQ_DEFAULT_KEY = "Paste_your_api_key"
+GROQ_DEFAULT_KEY = "paste_your_api_key_here"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 AI_MODEL = "llama-3.1-8b-instant"
 AI_BOT_ID = "AI_ASSISTANT"
 AI_BOT_NAME = "Assistant"
 AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png"
+
+# Presence tracking
+user_current_room = {}  # user_id -> room_id
 
 # ---------------------------
 # Database Management (SQLite)
@@ -101,6 +104,16 @@ def init_db():
         ''')
         c.execute("INSERT OR IGNORE INTO ai_global_context (id, summary, last_updated) VALUES (1, '', CURRENT_TIMESTAMP)")
 
+        # Rooms table for shared metadata
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS rooms (
+                room_id TEXT PRIMARY KEY,
+                room_name TEXT,
+                room_avatar TEXT,
+                is_group INTEGER DEFAULT 0
+            )
+        ''')
+
         # Indexes
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_time ON messages(room_id, id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)")
@@ -116,6 +129,13 @@ def init_db():
         except sqlite3.OperationalError:
             c.execute("ALTER TABLE users ADD COLUMN ai_usage INTEGER DEFAULT 0")
             c.execute("ALTER TABLE users ADD COLUMN groq_key TEXT")
+
+        # Migration for existing rooms
+        c.execute("SELECT room_id FROM chat_participants")
+        rooms = set(r[0] for r in c.fetchall())
+        for rid in rooms:
+            c.execute("INSERT OR IGNORE INTO rooms (room_id, is_group) VALUES (?, ?)",
+                      (rid, 1 if "_" not in rid else 0))
 
         conn.commit()
 
@@ -311,6 +331,20 @@ HTML_PAGE = """
         }
         .chat-item:hover { background: rgba(255,255,255,0.05); }
         .chat-item.active { background: rgba(0, 242, 255, 0.1); border-left: 3px solid var(--accent-color); }
+        .unread-dot {
+            width: 12px;
+            height: 12px;
+            background: #ff003c; /* Vibrant neon red */
+            border-radius: 50%;
+            box-shadow: 0 0 12px #ff003c, 0 0 20px rgba(255, 0, 60, 0.4);
+            margin-left: 10px;
+            display: none;
+            flex-shrink: 0;
+            border: 2px solid rgba(255,255,255,0.8); /* White border makes it pop */
+        }
+        .chat-item.has-unread .unread-dot {
+            display: block;
+        }
 
         .chat-avatar-small {
             width: 40px; height: 40px; border-radius: 50%;
@@ -406,6 +440,60 @@ HTML_PAGE = """
         .message.ai-msg {
             border: 1px solid rgba(0, 242, 255, 0.6);
             box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+        }
+
+        /* Message Dropdown Menu */
+        .message-menu {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+            overflow: hidden;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .message-menu.active {
+            display: block;
+        }
+
+        .message-menu button {
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            width: 100%;
+            text-align: left;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: 0.2s;
+        }
+
+        .message-menu button:hover {
+            background: rgba(0, 242, 255, 0.2);
+        }
+
+        .message-menu button.delete {
+            color: #ff4757;
+        }
+
+        .message-menu button.delete:hover {
+            background: rgba(242, 71, 87, 0.2);
+        }
+
+        .message-actions {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+            opacity: 0;
+            transition: 0.2s;
+        }
+
+        .message:hover .message-actions {
+            opacity: 1;
         }
 
         .msg-info {
@@ -643,7 +731,8 @@ HTML_PAGE = """
                     <img id="my-avatar" src="https://ui-avatars.com/api/?name=User&background=random" alt="Profile">
                     <div class="avatar-overlay"><i class="fas fa-camera"></i></div>
                 </div>
-                <input type="file" id="avatar-input" hidden accept="image/*" onchange="initCrop(this)">
+                <input type="file" id="avatar-input" hidden accept="image/*" onchange="initCrop(this, false)">
+                <input type="file" id="group-avatar-input" hidden accept="image/*" onchange="initCrop(this, true)">
                 
                 <h3 id="display-name" style="margin: 5px 0;">User</h3>
                 <div class="user-id-pill" onclick="copyMyID()">
@@ -679,6 +768,7 @@ HTML_PAGE = """
                         </div>
                     </div>
                     <div class="header-actions">
+                        <i id="btn-change-group-avatar" class="fas fa-image icon-btn" title="Change Group Avatar" onclick="changeGroupAvatar()"></i>
                         <i class="fas fa-user-plus icon-btn" title="Add Member" onclick="openDialog('add-member-dialog')"></i>
                         <i class="fas fa-pen icon-btn" title="Rename Chat" onclick="renameChat()"></i>
                         <i class="fas fa-trash icon-btn delete" title="Delete Chat" onclick="deleteChat()"></i>
@@ -908,8 +998,9 @@ HTML_PAGE = """
         }
 
         // --- CROPPER & AVATAR UPLOAD ---
-        function initCrop(input) {
+        function initCrop(input, isGroup) {
             if (input.files && input.files[0]) {
+                window.isCroppingGroup = isGroup; // Store state globally
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     const image = document.getElementById('cropper-image');
@@ -930,7 +1021,13 @@ HTML_PAGE = """
 
         function confirmCrop() {
             if(!cropper) return;
-            cropper.getCroppedCanvas({ width: 300, height: 300 }).toBlob((blob) => { uploadAvatarBlob(blob); });
+            cropper.getCroppedCanvas({ width: 300, height: 300 }).toBlob((blob) => {
+                if(window.isCroppingGroup) {
+                    uploadGroupAvatarBlob(blob);
+                } else {
+                    uploadAvatarBlob(blob);
+                }
+            });
             cancelCrop();
         }
 
@@ -950,6 +1047,23 @@ HTML_PAGE = """
             } catch(e) { alert("Avatar upload failed"); }
         }
 
+        async function uploadGroupAvatarBlob(blob) {
+            const formData = new FormData();
+            formData.append('file', blob, 'avatar.png');
+            formData.append('room_id', currentRoom);
+            try {
+                const res = await fetch('/upload_room_avatar', {method:'POST', body:formData});
+                const data = await res.json();
+                if(data.url) {
+                    const newUrl = data.url + '?t=' + new Date().getTime();
+                    document.getElementById('current-chat-avatar').src = newUrl;
+                    roomAvatars[currentRoom] = newUrl;
+                    // Notify others
+                    socket.emit('update_room_avatar', { room_id: currentRoom, avatar: newUrl });
+                }
+            } catch(e) { alert("Group avatar upload failed"); }
+        }
+
         // --- NAVIGATION ---
         function showChat(roomId) {
             if(window.innerWidth <= 768) {
@@ -966,6 +1080,15 @@ HTML_PAGE = """
             document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
             document.getElementById('typing-container').innerHTML = ''; // clear typing
         }
+
+        // --- PRESENCE LISTENER ---
+        socket.on('presence_update', (data) => {
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.innerText = data.status;
+                statusEl.style.color = data.status === 'Online' ? '#00f2ff' : (data.status === 'Group Chat' ? '#ffffff' : '#00ff88');
+            }
+        });
 
         // --- CHAT LOGIC ---
         function openDialog(id) { document.getElementById(id).classList.add('dialog-active'); }
@@ -994,7 +1117,6 @@ HTML_PAGE = """
 
         // Socket Listeners
         socket.on('error', (data) => alert(data.message));
-        socket.on('chat_added', () => loadChats());
         socket.on('chat_created', (data) => {
             if(data.success) {
                 loadChats(); 
@@ -1002,6 +1124,10 @@ HTML_PAGE = """
             } else {
                 alert(data.message);
             }
+        });
+
+        socket.on('refresh_sidebar', (data) => {
+            loadChats();
         });
 
         socket.on('chat_deleted', (data) => {
@@ -1023,6 +1149,23 @@ HTML_PAGE = """
                 document.querySelectorAll('.ticks').forEach(el => el.classList.add('read'));
             }
         });
+
+        socket.on('chat_added', (data) => {
+            loadChats();
+        });
+
+        socket.on('room_avatar_updated', (data) => {
+            // Update local cache
+            roomAvatars[data.room_id] = data.avatar_url;
+            
+            // If we are currently in this room, update the header image immediately
+            if(currentRoom === data.room_id) {
+                document.getElementById('current-chat-avatar').src = data.avatar_url;
+            }
+            
+            // Refresh sidebar to show new icon
+            loadChats();
+        });
         
         socket.on('room_users', (users) => {
             currentRoomUsers = users;
@@ -1039,37 +1182,58 @@ HTML_PAGE = """
             }
             chats.forEach(chat => {
                 const li = document.createElement('li');
-                li.className = `chat-item ${currentRoom === chat.room_id ? 'active' : ''}`;
+                li.className = `chat-item ${currentRoom === chat.room_id ? 'active' : ''} ${chat.has_unread ? 'has-unread' : ''}`;
                 li.dataset.roomId = chat.room_id; 
-                let avatarUrl = chat.other_avatar || `https://ui-avatars.com/api/?name=${chat.chat_name}&background=random`;
-                if(chat.other_avatar && !avatarUrl.includes('?')) avatarUrl += '?t=' + new Date().getTime();
+
+                // Use room_avatar for groups, other_avatar for personal chats
+                let avatarUrl;
+                if(chat.is_group) {
+                    avatarUrl = chat.room_avatar || `https://ui-avatars.com/api/?name=${chat.chat_name}&background=random`;
+                } else {
+                    avatarUrl = chat.other_avatar || `https://ui-avatars.com/api/?name=${chat.chat_name}&background=random`;
+                }
+
+                if(avatarUrl && !avatarUrl.includes('?')) avatarUrl += '?t=' + new Date().getTime();
                 roomAvatars[chat.room_id] = avatarUrl;
 
                 li.innerHTML = `
                     <div class="chat-avatar-small"><img src="${avatarUrl}" id="avatar-room-${chat.room_id}"></div>
                     <div style="flex:1;">
                         <div style="font-weight:600;">${chat.chat_name}</div>
-                        <div style="font-size:0.8rem; opacity:0.6;">Tap to chat</div>
+                        <div style="font-size:0.8rem; opacity:0.6;">${chat.is_group ? 'Group Chat' : 'Tap to chat'}</div>
                     </div>
+                    <div class="unread-dot"></div>
                 `;
-                li.onclick = () => enterRoom(chat.room_id, chat.chat_name, avatarUrl);
+                li.onclick = () => enterRoom(chat.room_id, chat.chat_name, avatarUrl, chat.is_group);
                 list.appendChild(li);
             });
         });
 
-        function enterRoom(roomId, name, avatarUrl) {
+        function enterRoom(roomId, name, avatarUrl, isGroup) {
+            // Toggle Group Avatar Button visibility
+            const groupAvatarBtn = document.getElementById('btn-change-group-avatar');
+            if(groupAvatarBtn) {
+                groupAvatarBtn.style.display = isGroup ? 'block' : 'none';
+            }
+
+            if (currentRoom && currentRoom !== roomId) {
+                socket.emit('leave_room_manually', {room_id: currentRoom, user_id: currentUser.id});
+            }
             currentRoom = roomId;
             clearAttachment(); 
             document.getElementById('empty-state').style.display = 'none';
             document.getElementById('active-chat').style.display = 'flex';
             document.getElementById('current-chat-name').innerText = name;
             document.getElementById('typing-container').innerHTML = ''; // clear old typing status
-            
+
             let finalAvatar = avatarUrl || roomAvatars[roomId] || `https://ui-avatars.com/api/?name=${name}`;
             document.getElementById('current-chat-avatar').src = finalAvatar;
             document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
             const activeItem = document.querySelector(`.chat-item[data-room-id="${roomId}"]`);
-            if(activeItem) activeItem.classList.add('active');
+            if(activeItem) {
+                activeItem.classList.add('active');
+                activeItem.classList.remove('has-unread'); // Remove dot when opened
+            }
             showChat(); 
             socket.emit('join_room', {room_id: roomId, user_id: currentUser.id});
         }
@@ -1077,7 +1241,13 @@ HTML_PAGE = """
         socket.on('history', (messages) => {
             const container = document.getElementById('messages');
             container.innerHTML = '';
-            messages.forEach(msg => appendMessage(msg));
+            messages.forEach(msg => {
+                // Ensure each message has an ID
+                if (!msg.id) {
+                    msg.id = `${msg.sender_id}-${msg.time}`;
+                }
+                appendMessage(msg);
+            });
             container.scrollTop = container.scrollHeight;
         });
 
@@ -1086,8 +1256,42 @@ HTML_PAGE = """
                 appendMessage(msg);
                 const container = document.getElementById('messages');
                 container.scrollTop = container.scrollHeight;
+
+                // If we are looking at the chat, immediately mark as read in DB
                 if(msg.sender_id !== currentUser.id) {
                     socket.emit('mark_read', {room_id: currentRoom, user_id: currentUser.id});
+                }
+            } else {
+                // This part is now handled more reliably by 'refresh_sidebar'
+                loadChats();
+            }
+        });
+
+        socket.on('message_deleted', (data) => {
+            if(currentRoom === data.room_id) {
+                const messageElements = document.querySelectorAll(`.message-row[data-message-id="${data.message_id}"]`);
+                messageElements.forEach(el => {
+                    el.remove();
+                });
+            }
+        });
+
+        socket.on('message_edited', (data) => {
+            if(currentRoom === data.room_id) {
+                const messageRow = document.querySelector(`.message-row[data-message-id="${data.message_id}"]`);
+                if (messageRow) {
+                    const messageDiv = messageRow.querySelector('.message');
+                    const contentDiv = messageDiv.querySelector('div:not(.msg-info):not(.message-menu):not(.message-actions)');
+                    if (contentDiv) {
+                        contentDiv.innerHTML = escapeHtml(data.new_content);
+                        // Add (edited) indicator
+                        const editedSpan = document.createElement('span');
+                        editedSpan.style.fontSize = '0.6rem';
+                        editedSpan.style.opacity = '0.6';
+                        editedSpan.style.marginLeft = '5px';
+                        editedSpan.textContent = '(edited)';
+                        contentDiv.appendChild(editedSpan);
+                    }
                 }
             }
         });
@@ -1114,10 +1318,19 @@ HTML_PAGE = """
             } else if (isAI) {
                 avatarSrc = "https://img.icons8.com/fluency/96/bot.png";
             } else {
-                avatarSrc = roomAvatars[currentRoom] || `https://ui-avatars.com/api/?name=User`;
-                // Try to find exact user from room participants if available
+                // Default to a generic placeholder, NOT the group avatar
+                avatarSrc = `https://ui-avatars.com/api/?name=User&background=random`;
+
+                // Try to find exact user from room participants
                 const u = currentRoomUsers.find(x => x.id === msg.sender_id);
-                if(u && u.avatar) avatarSrc = u.avatar;
+                if(u) {
+                    if(u.avatar) {
+                        avatarSrc = u.avatar;
+                    } else {
+                        // Generate avatar from username if no image set
+                        avatarSrc = `https://ui-avatars.com/api/?name=${u.name}&background=random`;
+                    }
+                }
             }
 
             const avatarDiv = document.createElement('div');
@@ -1142,8 +1355,20 @@ HTML_PAGE = """
             }
             
             const ticks = isMe ? `<span class="ticks ${msg.status === 'read' ? 'read' : ''}"><i class="fas fa-check-double"></i></span>` : '';
-            msgBubble.innerHTML = contentHtml + `<div class="msg-info"><span>${msg.time}</span>${ticks}</div>`;
-            
+            const messageActions = isMe ? `
+                <div class="message-actions" onclick="toggleMessageMenu(event, '${msg.sender_id}', '${msg.time}', '${msg.id || ''}', '${msg.type}', '${escapeHtml(msg.content)}', '${msg.filename || ''}')">
+                    <i class="fas fa-ellipsis-v"></i>
+                </div>
+                <div class="message-menu" id="menu-${msg.sender_id}-${msg.time}">
+                    <button onclick="editMessage('${msg.sender_id}', '${msg.time}', '${msg.id || ''}')"><i class="fas fa-edit"></i> Edit</button>
+                    <button class="delete" onclick="deleteMessage('${msg.sender_id}', '${msg.time}', '${msg.id || ''}')"><i class="fas fa-trash"></i> Delete</button>
+                </div>
+            ` : '';
+
+            msgBubble.innerHTML = contentHtml + `<div class="msg-info"><span>${msg.time}</span>${ticks}</div>` + messageActions;
+            msgBubble.style.position = 'relative';
+
+            row.dataset.messageId = msg.id || '';
             row.appendChild(avatarDiv);
             row.appendChild(msgBubble);
             container.appendChild(row);
@@ -1231,15 +1456,94 @@ HTML_PAGE = """
             }
         }
 
+        function changeGroupAvatar() {
+            if(!currentRoom) return;
+            document.getElementById('group-avatar-input').click();
+        }
+
         function deleteChat() {
             if(!currentRoom) return;
             if(confirm("Delete chat?")) socket.emit('delete_chat', {room_id: currentRoom, user_id: currentUser.id});
+        }
+
+        // Helper function to find elements containing specific text
+        function findElementsByText(selector, text) {
+            const elements = document.querySelectorAll(selector);
+            return Array.from(elements).filter(el => el.textContent.includes(text));
         }
 
         function escapeHtml(text) {
             if (!text) return "";
             return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
+
+        function toggleMessageMenu(event, senderId, time, messageId, type, content, filename) {
+            event.stopPropagation();
+            const menuId = `menu-${senderId}-${time}`;
+            const menu = document.getElementById(menuId);
+
+            // Close all other menus
+            document.querySelectorAll('.message-menu.active').forEach(m => {
+                if (m.id !== menuId) m.classList.remove('active');
+            });
+
+            // Toggle current menu
+            menu.classList.toggle('active');
+
+            // Store message data for edit
+            if (menu.classList.contains('active')) {
+                window.currentEditingMessage = {
+                    senderId: senderId,
+                    time: time,
+                    messageId: messageId,
+                    type: type,
+                    content: content,
+                    filename: filename
+                };
+            }
+        }
+
+        function editMessage(senderId, time, messageId) {
+            const message = window.currentEditingMessage;
+            if (!message) return;
+
+            // For text messages, show a prompt for editing
+            if (message.type === 'text') {
+                const newContent = prompt("Edit your message:", message.content);
+                if (newContent !== null && newContent.trim() !== "") {
+                    socket.emit('edit_message', {
+                        room_id: currentRoom,
+                        message_id: messageId,
+                        sender_id: senderId,
+                        timestamp: time,
+                        new_content: newContent.trim()
+                    });
+                }
+                // Close the menu
+                document.getElementById(`menu-${senderId}-${time}`).classList.remove('active');
+            } else {
+                alert("Editing non-text messages is not supported yet.");
+            }
+        }
+
+        function deleteMessage(senderId, time, messageId) {
+            if (!currentRoom) return;
+            if (confirm("Are you sure you want to delete this message?")) {
+                socket.emit('delete_message', {
+                    room_id: currentRoom,
+                    message_id: messageId,
+                    sender_id: senderId,
+                    timestamp: time
+                });
+            }
+        }
+
+        // Close menus when clicking outside
+        document.addEventListener('click', function() {
+            document.querySelectorAll('.message-menu.active').forEach(m => {
+                m.classList.remove('active');
+            });
+        });
     </script>
 </body>
 </html>
@@ -1294,16 +1598,34 @@ def upload_avatar():
 def upload_file():
     if 'file' not in request.files: return jsonify({'error': 'No file'})
     file = request.files['file']
-    
+
     if file:
         fname = secure_filename(f"{int(datetime.datetime.now().timestamp())}_{file.filename}")
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
-        
+
         mime_type, _ = mimetypes.guess_type(fname)
         if not mime_type: mime_type = 'application/octet-stream'
         if fname.endswith('.py'): mime_type = 'text/x-python'
-        
+
         return jsonify({'url': f"/uploads/{fname}", 'type': mime_type})
+    return jsonify({'error': 'Failed'})
+
+@app.route('/upload_room_avatar', methods=['POST'])
+def upload_room_avatar():
+    if 'file' not in request.files: return jsonify({'error': 'No file'})
+    file = request.files['file']
+    room_id = request.form.get('room_id')
+
+    if file and room_id:
+        fname = secure_filename(f"room_{room_id}_{int(datetime.datetime.now().timestamp())}.png")
+        path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
+        file.save(path)
+        url = f"/uploads/{fname}"
+
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.execute("UPDATE rooms SET room_avatar=? WHERE room_id=?", (url, room_id))
+
+        return jsonify({'url': url})
     return jsonify({'error': 'Failed'})
 
 @app.route('/uploads/<filename>')
@@ -1321,12 +1643,12 @@ def on_login(data):
 def on_create_chat(data):
     my_id = data['my_id']
     target_id = data['target_id']
-    
+
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT username FROM users WHERE user_id=?", (target_id,))
         target = c.fetchone()
-        
+
         if not target:
             emit('chat_created', {'success': False, 'message': 'User ID not found'})
             return
@@ -1337,8 +1659,18 @@ def on_create_chat(data):
 
         c.execute("INSERT OR IGNORE INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)", (room_id, my_id, target[0]))
         c.execute("INSERT OR IGNORE INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)", (room_id, target_id, my_name))
+        c.execute("INSERT OR IGNORE INTO rooms (room_id, is_group) VALUES (?, ?)", (room_id, 0))
+
+        # Add initial system message so the chat has a timestamp for sorting
+        c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content) VALUES (?, ?, ?, ?)",
+                  (room_id, 'SYSTEM', 'system', 'Conversation started'))
+
         conn.commit()
-        
+
+        # Notify both users to refresh their sidebars in real-time
+        socketio.emit('chat_added', {'room_id': room_id}, room=my_id)
+        socketio.emit('chat_added', {'room_id': room_id}, room=target_id)
+
         emit('chat_created', {'success': True, 'room_id': room_id, 'chat_name': target[0]})
 
 @socketio.on('add_member')
@@ -1346,7 +1678,7 @@ def on_add_member(data):
     room_id = data['room_id']
     target_id = data['target_id']
     requester_id = data['user_id']
-    
+
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT username FROM users WHERE user_id=?", (target_id,))
@@ -1354,27 +1686,49 @@ def on_add_member(data):
         if not target_row:
             emit('error', {'message': 'User not found'}) 
             return
-        
+
         target_name = target_row[0]
         c.execute("SELECT 1 FROM chat_participants WHERE room_id=? AND user_id=?", (room_id, target_id))
         if c.fetchone():
             emit('error', {'message': 'User already in chat'})
             return
 
-        c.execute("INSERT INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)", 
-                  (room_id, target_id, "Group Chat"))
-        
+        # Check if the room is already a group to preserve existing DP and Name
+        c.execute("SELECT is_group, room_name FROM rooms WHERE room_id=?", (room_id,))
+        room_info = c.fetchone()
+        is_already_group = room_info[0] if room_info else 0
+        current_name = room_info[1] if (room_info and room_info[1]) else "Group Chat"
+
+        # Add the new member using the current room name
+        c.execute("INSERT INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)",
+                  (room_id, target_id, current_name))
+
+        # Only initialize default group metadata if transitioning from a 1-on-1 chat
+        if not is_already_group:
+            c.execute("""
+                UPDATE rooms
+                SET is_group=1,
+                    room_name='Group Chat',
+                    room_avatar='https://img.icons8.com/fluency/96/group-foreground-selected.png'
+                WHERE room_id=?
+            """, (room_id,))
+            # Update existing participants' chat_name to 'Group Chat' for the new group
+            c.execute("UPDATE chat_participants SET chat_name='Group Chat' WHERE room_id=?", (room_id,))
+
         c.execute("SELECT username FROM users WHERE user_id=?", (requester_id,))
         requester_name = c.fetchone()[0]
         sys_msg = f"{requester_name} added {target_name}"
-        
+
         c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content) VALUES (?, ?, ?, ?)",
                   (room_id, 'SYSTEM', 'system', sys_msg))
         conn.commit()
 
         now = datetime.datetime.now().strftime('%H:%M')
-        emit('message', {'sender_id': 'SYSTEM', 'type': 'system', 'content': sys_msg, 'time': now, 'room_id': room_id}, room=room_id)
-        emit('chat_added', {'room_id': room_id}, room=target_id)
+        socketio.emit('message', {'sender_id': 'SYSTEM', 'type': 'system', 'content': sys_msg, 'time': now, 'room_id': room_id}, room=room_id)
+
+        # This triggers loadChats() on all clients in the room and the new member specifically
+        socketio.emit('chat_added', {'room_id': room_id}, room=room_id)
+        socketio.emit('chat_added', {'room_id': room_id}, room=target_id)
         emit('success', {'message': 'Member added'})
 
 @socketio.on('get_chats')
@@ -1384,15 +1738,27 @@ def on_get_chats(data):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         query = '''
-            SELECT cp.room_id, cp.chat_name, 
-                   (SELECT u.avatar_url FROM chat_participants cp2 
-                    JOIN users u ON cp2.user_id = u.user_id 
-                    WHERE cp2.room_id = cp.room_id AND cp2.user_id != ? LIMIT 1) as other_avatar
+            SELECT cp.room_id, cp.chat_name, r.is_group, r.room_avatar,
+                   (SELECT u.avatar_url FROM chat_participants cp2
+                    JOIN users u ON cp2.user_id = u.user_id
+                    WHERE cp2.room_id = cp.room_id AND cp2.user_id != ? LIMIT 1) as other_avatar,
+                   (SELECT COUNT(*) FROM messages m
+                    WHERE m.room_id = cp.room_id AND m.sender_id != ? AND m.status = 'sent' AND m.msg_type != 'system') as unread_count,
+                   (SELECT MAX(timestamp) FROM messages WHERE room_id = cp.room_id) as last_msg_time
             FROM chat_participants cp
+            JOIN rooms r ON cp.room_id = r.room_id
             WHERE cp.user_id = ?
+            ORDER BY unread_count DESC, last_msg_time DESC
         '''
-        c.execute(query, (user_id, user_id))
-        chats = [{'room_id': r['room_id'], 'chat_name': r['chat_name'], 'other_avatar': r['other_avatar']} for r in c.fetchall()]
+        c.execute(query, (user_id, user_id, user_id))
+        chats = [{
+            'room_id': r['room_id'],
+            'chat_name': r['chat_name'],
+            'other_avatar': r['other_avatar'],
+            'is_group': r['is_group'],
+            'room_avatar': r['room_avatar'],
+            'has_unread': r['unread_count'] > 0
+        } for r in c.fetchall()]
         emit('chat_list', chats)
 
 def get_room_participants(room_id):
@@ -1410,28 +1776,47 @@ def get_room_participants(room_id):
 def on_join(data):
     room_id = data['room_id']
     user_id = data['user_id']
+
+    # Track presence
+    user_current_room[user_id] = room_id
     join_room(room_id)
-    
+
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("UPDATE messages SET status='read' WHERE room_id=? AND sender_id!=?", (room_id, user_id))
         conn.commit()
-        
+
         emit('messages_read', {'room_id': room_id}, room=room_id)
         users = get_room_participants(room_id)
         emit('room_users', users, room=user_id)
 
-        c.execute("SELECT sender_id, msg_type, content, filename, timestamp, status FROM messages WHERE room_id=? ORDER BY id ASC", (room_id,))
+        c.execute("SELECT id, sender_id, msg_type, content, filename, timestamp, status FROM messages WHERE room_id=? ORDER BY id ASC", (room_id,))
         msgs = []
         for r in c.fetchall():
             try:
-                dt = datetime.datetime.strptime(r[4], '%Y-%m-%d %H:%M:%S')
+                dt = datetime.datetime.strptime(r[5], '%Y-%m-%d %H:%M:%S')
                 time_str = dt.strftime('%H:%M')
             except:
-                time_str = r[4]
-            msgs.append({'sender_id': r[0], 'type': r[1], 'content': r[2], 'filename': r[3], 'time': time_str, 'status': r[5]})
-            
+                time_str = r[5]
+            msgs.append({'id': r[0], 'sender_id': r[1], 'type': r[2], 'content': r[3], 'filename': r[4], 'time': time_str, 'status': r[6]})
+
         emit('history', msgs)
+
+    # Presence Logic
+    participants = get_room_participants(room_id)
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT is_group FROM rooms WHERE room_id=?", (room_id,))
+        is_group = c.fetchone()[0]
+
+    if is_group == 0 and len(participants) == 2:
+        other = next(p for p in participants if p['id'] != user_id)
+        if user_current_room.get(other['id']) == room_id:
+            emit('presence_update', {'status': 'Online'}, room=room_id)
+        else:
+            emit('presence_update', {'status': 'Connected'}, room=user_id)
+    else:
+        emit('presence_update', {'status': 'Group Chat' if is_group else 'Connected'}, room=user_id)
 
 @socketio.on('typing')
 def on_typing(data):
@@ -1453,6 +1838,20 @@ def on_mark_read(data):
         c.execute("UPDATE messages SET status='read' WHERE room_id=? AND sender_id!=?", (room_id, user_id))
         conn.commit()
     emit('messages_read', {'room_id': room_id}, room=room_id)
+    # Refresh the sidebar for the person who just read the messages
+    emit('refresh_sidebar', {'room_id': room_id}, room=user_id)
+
+@socketio.on('leave_room_manually')
+def on_leave_room_manually(data):
+    user_id = data['user_id']
+    room_id = data['room_id']
+    if user_current_room.get(user_id) == room_id:
+        user_current_room[user_id] = None
+    leave_room(room_id)
+    # Notify others in 1-on-1 that user left the view
+    participants = get_room_participants(room_id)
+    if len(participants) == 2:
+        emit('presence_update', {'status': 'Connected'}, room=room_id)
 
 @socketio.on('save_api_key')
 def on_save_key(data):
@@ -1473,25 +1872,41 @@ def on_send(data):
     if not room_id or not sender_id:
         return
 
+    # Get current timestamp for database
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    display_time = datetime.datetime.now().strftime('%H:%M')
+
     # Save User Message
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO messages (room_id, sender_id, msg_type, content, filename, status)
-            VALUES (?, ?, ?, ?, ?, 'sent')
-        """, (room_id, sender_id, msg_type, content, fname))
+            INSERT INTO messages (room_id, sender_id, msg_type, content, filename, timestamp, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'sent')
+        """, (room_id, sender_id, msg_type, content, fname, now))
         conn.commit()
 
-    now = datetime.datetime.now().strftime('%H:%M')
+        # Get the ID of the inserted message
+        message_id = c.lastrowid
+
     emit('message', {
         'sender_id': sender_id,
         'type': msg_type,
         'content': content,
         'filename': fname,
-        'time': now,
+        'time': display_time,
         'room_id': room_id,
-        'status': 'sent'
+        'status': 'sent',
+        'id': message_id
     }, room=room_id)
+
+    # --- ADD THIS BLOCK HERE ---
+    # Notify all participants to refresh their sidebar for unread dots
+    participants = get_room_participants(room_id)
+    for p in participants:
+        if p['id'] != sender_id:
+            # Send to the user's private room (their user_id)
+            socketio.emit('refresh_sidebar', {'room_id': room_id}, room=p['id'])
+    # ---------------------------
 
     # ---------------- AI LOGIC ----------------
     if msg_type == 'text' and content.startswith('@Assistant'):
@@ -1581,16 +1996,98 @@ def on_delete_chat(data):
     user_id = data['user_id']
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute("DELETE FROM chat_participants WHERE room_id=? AND user_id=?", (room_id, user_id))
+        # If no participants left, clean up room and messages
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM chat_participants WHERE room_id=?", (room_id,))
+        if c.fetchone()[0] == 0:
+            conn.execute("DELETE FROM rooms WHERE room_id=?", (room_id,))
+            conn.execute("DELETE FROM messages WHERE room_id=?", (room_id,))
         conn.commit()
-    emit('chat_deleted', {'room_id': room_id})
+    emit('chat_deleted', {'room_id': room_id}, room=user_id)
+
+@socketio.on('delete_message')
+def on_delete_message(data):
+    room_id = data['room_id']
+    message_id = data.get('message_id')
+    sender_id = data['sender_id']
+    timestamp = data['timestamp']
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        # Find the message by ID first, then by sender_id and timestamp as fallback
+        if message_id:
+            c.execute("DELETE FROM messages WHERE id=?", (message_id,))
+        else:
+            c.execute("""
+                DELETE FROM messages
+                WHERE room_id=? AND sender_id=? AND timestamp=?
+            """, (room_id, sender_id, timestamp))
+        conn.commit()
+
+        if c.rowcount > 0:
+            # Notify all users in the room
+            emit('message_deleted', {
+                'room_id': room_id,
+                'message_id': message_id,
+                'sender_id': sender_id,
+                'timestamp': timestamp
+            }, room=room_id)
+
+@socketio.on('edit_message')
+def on_edit_message(data):
+    room_id = data['room_id']
+    message_id = data.get('message_id')
+    sender_id = data['sender_id']
+    timestamp = data['timestamp']
+    new_content = data['new_content']
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        # Update the message content by ID first, then by sender_id and timestamp as fallback
+        if message_id:
+            c.execute("UPDATE messages SET content=? WHERE id=?", (new_content, message_id))
+        else:
+            c.execute("""
+                UPDATE messages
+                SET content=?
+                WHERE room_id=? AND sender_id=? AND timestamp=?
+            """, (new_content, room_id, sender_id, timestamp))
+        conn.commit()
+
+        if c.rowcount > 0:
+            # Notify all users in the room
+            emit('message_edited', {
+                'room_id': room_id,
+                'message_id': message_id,
+                'sender_id': sender_id,
+                'timestamp': timestamp,
+                'new_content': new_content
+            }, room=room_id)
 
 @socketio.on('avatar_update')
 def on_avatar_update(data):
     emit('user_avatar_updated', data, broadcast=True)
 
+@socketio.on('update_room_avatar')
+def on_update_room_avatar(data):
+    room_id = data['room_id']
+    # Fix: Use 'avatar' which is what the frontend sends
+    avatar_url = data['avatar']
+    
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE rooms SET room_avatar=? WHERE room_id=?", (avatar_url, room_id))
+        conn.commit()
+    
+    # Emit a specific event with the new URL so clients can update the header instantly
+    emit('room_avatar_updated', {'room_id': room_id, 'avatar_url': avatar_url}, room=room_id)
+
 if __name__ == "__main__":
     print("\n💎 ZYLO LINK Ultimate Running Successfully")
     print("👉 http://127.0.0.1:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+
+
+
+
 
 
