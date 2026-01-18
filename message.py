@@ -146,7 +146,16 @@ init_db()
 # Helper Functions
 # ---------------------------
 def generate_id():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+    while True:
+        new_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+        # Ensure ID is unique across users and rooms
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1 FROM users WHERE user_id=?", (new_id,))
+            if not c.fetchone():
+                c.execute("SELECT 1 FROM rooms WHERE room_id=?", (new_id,))
+                if not c.fetchone():
+                    return new_id
 
 def get_unique_room_id(user1, user2):
     return "_".join(sorted([user1, user2]))
@@ -1681,55 +1690,83 @@ def on_add_member(data):
 
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
+        
+        # 1. Validate Target User
         c.execute("SELECT username FROM users WHERE user_id=?", (target_id,))
         target_row = c.fetchone()
         if not target_row:
             emit('error', {'message': 'User not found'}) 
             return
-
         target_name = target_row[0]
+
+        # 2. Check if target already in THIS room
         c.execute("SELECT 1 FROM chat_participants WHERE room_id=? AND user_id=?", (room_id, target_id))
         if c.fetchone():
             emit('error', {'message': 'User already in chat'})
             return
 
-        # Check if the room is already a group to preserve existing DP and Name
+        # 3. Check if current room is a group
         c.execute("SELECT is_group, room_name FROM rooms WHERE room_id=?", (room_id,))
         room_info = c.fetchone()
-        is_already_group = room_info[0] if room_info else 0
-        current_name = room_info[1] if (room_info and room_info[1]) else "Group Chat"
+        is_currently_group = room_info[0] if room_info else 0
+        
+        if not is_currently_group:
+            # === CASE A: CONVERT PRIVATE TO NEW GROUP (Fix DM Hijack) ===
+            # Create a BRAND NEW room ID for the group
+            new_room_id = generate_id() 
+            
+            # Fetch existing participants (The two people in the DM)
+            c.execute("SELECT user_id FROM chat_participants WHERE room_id=?", (room_id,))
+            existing_users = [r[0] for r in c.fetchall()]
+            
+            # Create the new room entry
+            c.execute("INSERT INTO rooms (room_id, is_group, room_name, room_avatar) VALUES (?, 1, 'Group Chat', 'https://img.icons8.com/fluency/96/group-foreground-selected.png')", (new_room_id,))
+            
+            # Add ALL participants to the new room (Existing + New Target)
+            all_users = existing_users + [target_id]
+            for uid in all_users:
+                c.execute("INSERT INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, 'Group Chat')", (new_room_id, uid))
+            
+            # System Message
+            c.execute("SELECT username FROM users WHERE user_id=?", (requester_id,))
+            req_name = c.fetchone()[0]
+            sys_msg = f"{req_name} created group with {target_name}"
+            
+            # Insert initial message
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content, timestamp) VALUES (?, 'SYSTEM', 'system', ?, ?)", (new_room_id, sys_msg, now))
+            conn.commit()
+            
+            # Notify everyone to update their lists
+            for uid in all_users:
+                socketio.emit('chat_added', {'room_id': new_room_id}, room=uid)
+                
+            # Tell the requester to switch to the new room immediately
+            emit('chat_created', {'success': True, 'room_id': new_room_id, 'chat_name': 'Group Chat'})
+            
+        else:
+            # === CASE B: ADD TO EXISTING GROUP (Legacy Logic) ===
+            current_name = room_info[1] if (room_info and room_info[1]) else "Group Chat"
+            
+            c.execute("INSERT INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)",
+                      (room_id, target_id, current_name))
 
-        # Add the new member using the current room name
-        c.execute("INSERT INTO chat_participants (room_id, user_id, chat_name) VALUES (?, ?, ?)",
-                  (room_id, target_id, current_name))
+            c.execute("SELECT username FROM users WHERE user_id=?", (requester_id,))
+            requester_name = c.fetchone()[0]
+            sys_msg = f"{requester_name} added {target_name}"
 
-        # Only initialize default group metadata if transitioning from a 1-on-1 chat
-        if not is_already_group:
-            c.execute("""
-                UPDATE rooms
-                SET is_group=1,
-                    room_name='Group Chat',
-                    room_avatar='https://img.icons8.com/fluency/96/group-foreground-selected.png'
-                WHERE room_id=?
-            """, (room_id,))
-            # Update existing participants' chat_name to 'Group Chat' for the new group
-            c.execute("UPDATE chat_participants SET chat_name='Group Chat' WHERE room_id=?", (room_id,))
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content, timestamp) VALUES (?, 'SYSTEM', 'system', ?, ?)",
+                      (room_id, sys_msg, now))
+            conn.commit()
 
-        c.execute("SELECT username FROM users WHERE user_id=?", (requester_id,))
-        requester_name = c.fetchone()[0]
-        sys_msg = f"{requester_name} added {target_name}"
-
-        c.execute("INSERT INTO messages (room_id, sender_id, msg_type, content) VALUES (?, ?, ?, ?)",
-                  (room_id, 'SYSTEM', 'system', sys_msg))
-        conn.commit()
-
-        now = datetime.datetime.now().strftime('%H:%M')
-        socketio.emit('message', {'sender_id': 'SYSTEM', 'type': 'system', 'content': sys_msg, 'time': now, 'room_id': room_id}, room=room_id)
-
-        # This triggers loadChats() on all clients in the room and the new member specifically
-        socketio.emit('chat_added', {'room_id': room_id}, room=room_id)
-        socketio.emit('chat_added', {'room_id': room_id}, room=target_id)
-        emit('success', {'message': 'Member added'})
+            display_time = datetime.datetime.now().strftime('%H:%M')
+            socketio.emit('message', {'sender_id': 'SYSTEM', 'type': 'system', 'content': sys_msg, 'time': display_time, 'room_id': room_id}, room=room_id)
+            
+            # Refresh everyone's sidebar
+            socketio.emit('chat_added', {'room_id': room_id}, room=room_id)
+            socketio.emit('chat_added', {'room_id': room_id}, room=target_id)
+            emit('success', {'message': 'Member added'})
 
 @socketio.on('get_chats')
 def on_get_chats(data):
@@ -2018,9 +2055,14 @@ def on_delete_message(data):
         if message_id:
             c.execute("DELETE FROM messages WHERE id=?", (message_id,))
         else:
+            # Fallback: Match HH:MM timestamp. Use subquery to target only the most recent matching message.
             c.execute("""
                 DELETE FROM messages
-                WHERE room_id=? AND sender_id=? AND timestamp=?
+                WHERE id = (
+                    SELECT id FROM messages 
+                    WHERE room_id=? AND sender_id=? AND strftime('%H:%M', timestamp) = ?
+                    ORDER BY id DESC LIMIT 1
+                )
             """, (room_id, sender_id, timestamp))
         conn.commit()
 
@@ -2047,10 +2089,15 @@ def on_edit_message(data):
         if message_id:
             c.execute("UPDATE messages SET content=? WHERE id=?", (new_content, message_id))
         else:
+            # Fallback: Match HH:MM timestamp. Use subquery to target only the most recent matching message.
             c.execute("""
                 UPDATE messages
                 SET content=?
-                WHERE room_id=? AND sender_id=? AND timestamp=?
+                WHERE id = (
+                    SELECT id FROM messages 
+                    WHERE room_id=? AND sender_id=? AND strftime('%H:%M', timestamp) = ?
+                    ORDER BY id DESC LIMIT 1
+                )
             """, (new_content, room_id, sender_id, timestamp))
         conn.commit()
 
@@ -2085,7 +2132,6 @@ if __name__ == "__main__":
     print("\n💎 ZYLO LINK Ultimate Running Successfully")
     print("👉 http://127.0.0.1:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
-
 
 
 
