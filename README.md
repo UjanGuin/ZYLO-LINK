@@ -1,157 +1,223 @@
-# ZYLO LINK
+# ZYLO UNIFIED
+![Status](https://img.shields.io/badge/status-experimental-critical)
+![Stage](https://img.shields.io/badge/stage-research--grade-blueviolet)
+![Not Production Ready](https://img.shields.io/badge/not--production--ready-warning)
+![Maintenance](https://img.shields.io/badge/maintained-yes-success)
+![Architecture](https://img.shields.io/badge/architecture-unified-informational)
+![Design](https://img.shields.io/badge/design-modular-success)
+![Offline First](https://img.shields.io/badge/offline--first-yes-blue)
+![Zero Trust](https://img.shields.io/badge/zero--trust-architecture-black)
+![No SaaS](https://img.shields.io/badge/no--saas-dependency-important)
+![Telemetry](https://img.shields.io/badge/telemetry-none-black)
+![Security](https://img.shields.io/badge/security-advanced-darkred)
+![Cryptography](https://img.shields.io/badge/cryptography-advanced-darkred)
+![Steganography](https://img.shields.io/badge/steganography-experimental-8b0000)
+![Anti--Forensics](https://img.shields.io/badge/anti--forensics-enabled-critical)
+![Self--Destruct](https://img.shields.io/badge/self--destruct-supported-red)
+![AI Assisted](https://img.shields.io/badge/AI-assisted-purple)
+![Verifiable AI](https://img.shields.io/badge/AI-verifiable-brightgreen)
+![Formal Verification](https://img.shields.io/badge/formal--verification-supported-blue)
+![Math Verified](https://img.shields.io/badge/math-verified-success)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Flask](https://img.shields.io/badge/flask-framework-lightgrey)
+![Socket.IO](https://img.shields.io/badge/socket.io-realtime-black)
+![SQLite](https://img.shields.io/badge/database-sqlite-blue)
+![SymPy](https://img.shields.io/badge/sympy-symbolic--math-green)
+![Threat Model](https://img.shields.io/badge/threat--model-WIP-yellow)
+![Security Audit](https://img.shields.io/badge/security--audit-none-lightgrey)
+![License](https://img.shields.io/badge/license-open--source-success)
 
-<!-- BADGES -->
+> **A Unified Research‑Grade Platform for Secure Intelligence, Communication, Storage, and Verification**
 
-![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Flask](https://img.shields.io/badge/flask-web%20framework-black)
-![Socket.IO](https://img.shields.io/badge/socket.io-realtime-green)
-![Eventlet](https://img.shields.io/badge/eventlet-async-orange)
-![SQLite](https://img.shields.io/badge/sqlite-database-lightgrey)
-![License: MIT](https://img.shields.io/badge/license-MIT-brightgreen)
-![Status](https://img.shields.io/badge/status-active-success)
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Platform](https://img.shields.io/badge/platform-linux%20%7C%20windows%20%7C%20macOS-blue)
-![Self Hosted](https://img.shields.io/badge/self--hosted-yes-blueviolet)
-![WebSocket](https://img.shields.io/badge/websocket-enabled-yellow)
-![UI](https://img.shields.io/badge/UI-glassmorphism-ff69b4)
-![AI](https://img.shields.io/badge/AI-Groq%20LLM-critical)
-![Termux](https://img.shields.io/badge/termux-supported-success)
-![Contributions](https://img.shields.io/badge/contributions-welcome-orange)
+ZYLO UNIFIED is a comprehensive research-oriented platform designed to consolidate secure communication, private data storage, advanced cryptography, AI-assisted intelligence, and formal mathematical and physical verification into a single, cohesive system. Rather than addressing these domains in isolation, ZYLO UNIFIED is built around a shared trust and execution model that ensures consistent security, accountability, and integrity across all components.
 
----
+At its core, the platform treats cryptography, intelligence, and data governance as foundational infrastructure rather than auxiliary features. Real-time communication, cloud-like storage, steganographic security, and AI reasoning are tightly integrated, enabling controlled data flow, verifiable outputs, and adversary-aware operation within an offline-first environment.
 
-## 🚀 Overview
-
-**ZYLO LINK** is a fully self-hosted, real-time communication platform designed to demonstrate how modern chat systems can be built cleanly, efficiently, and independently using Python. It combines a low-latency WebSocket backend with a premium, responsive frontend to deliver instant messaging, media sharing, live presence, and AI-assisted conversations—without relying on external cloud services.
-
-Unlike traditional chat applications that depend on managed platforms or heavyweight stacks, ZYLO LINK is intentionally engineered as a **single-file deployment architecture** (beyond standard Python libraries). The entire user interface—HTML, CSS, and JavaScript—is embedded directly inside the backend, eliminating external templates and static pipelines. This design keeps the system portable, auditable, and extremely fast to deploy while still offering a modern glassmorphism UI comparable to commercial chat platforms.
-
-ZYLO LINK also integrates an **AI assistant powered by Groq-hosted LLMs** using direct HTTP APIs instead of SDKs, ensuring compatibility with constrained environments such as Android (Termux). The project serves both as a production-ready private chat system and a reference architecture for real-time, event-driven applications.
-
-> **Private • Real-Time • Self-Hosted • AI-Enhanced**
-
----
-
-## 🖼️ Interface Preview
-
-<p align="center">
-  <img src="assets/ui1.png" width="800" alt="ZYLO LINK UI Preview 1">
-</p>
-
-<p align="center">
-  <img src="assets/ui2.png" width="800" alt="ZYLO LINK UI Preview 2">
-</p>
-
-<p align="center">
-  <img src="assets/ui3.png" width="800" alt="ZYLO LINK UI Preview 3">
-</p>
-
-<p align="center">
-  <img src="assets/ui4.png" width="800" alt="ZYLO LINK UI Preview 4">
-</p>
+This repository functions as the unification and orchestration layer for the ZYLO ecosystem, binding multiple advanced subsystems into a modular, extensible architecture. It is intended for research, experimentation, and system-level exploration of next-generation secure intelligence platforms, where correctness, trust, and resilience are first-class design constraints rather than afterthoughts.
 
 ---
 
-## ✨ Key Features
+## Core Philosophy
 
-* ⚡ Real-time messaging using WebSockets (Flask-SocketIO)
-* 👥 Private and group chat rooms
-* 🤖 Built-in AI Assistant powered by **Groq LLMs** (HTTP-based, SDK-free)
-* 🧠 Context-aware AI responses
-* 🖼️ Live avatar upload and synchronization
-* 📎 File & media sharing (images, videos, documents)
-* 💾 Persistent message storage using SQLite
-* 🔐 Local authentication (no OAuth, no third-party login)
-* 🎨 Ultra-premium glassmorphism UI
-* 📱 Fully responsive (desktop & mobile)
-* 🧩 Fully embedded frontend (single-file deployment)
+* **Unification over fragmentation** — one system, one trust root
+* **Offline‑first** — no mandatory SaaS dependencies
+* **Cryptography as infrastructure**, not an add‑on
+* **Verifiable intelligence** — AI output can be audited and checked
+* **Anti‑forensic awareness** — designed with adversarial analysis in mind
 
 ---
 
-## 🧠 Technology Stack
+## Integrated Subsystems
 
-### Backend
+ZYLO UNIFIED brings together the following research projects:
 
-* Python 3.9+
-* Flask
-* Flask-SocketIO
-* Eventlet (async networking)
-* SQLite
-* Requests (Groq API integration)
+* **ZYLO LINK** — Secure real‑time communication with AI integration
+* **ZYLO RiG0R** — Formal mathematics and physics verification engine
+* **ZYLO CLOUD** — Private, self‑hosted cloud storage and filesystem
+* **ZYLO VEIL** — Experimental cryptographic steganography and destructive security
 
-### Frontend
-
-* HTML5
-* CSS3 (Glassmorphism Design)
-* Vanilla JavaScript
-* Font Awesome Icons
+Each module is independently powerful; ZYLO UNIFIED makes them **operate as one system**.
 
 ---
 
-## 📂 Project Structure
+## What Makes ZYLO UNIFIED Different
 
-```text
-.
-├── message.py          # Complete backend + embedded frontend
-├── uploads/            # Uploaded avatars & shared files
-├── assets/             # UI screenshots and media
-├── ZYLO_chat.db        # SQLite database (auto-generated)
-└── README.md
+Most platforms focus on **one** of the following:
+
+* encryption
+* messaging
+* cloud storage
+* AI
+* formal reasoning
+
+ZYLO UNIFIED deliberately combines **all of them** under a **shared identity, shared cryptographic state, and shared execution context**.
+
+### Key Differentiators
+
+* **Single Trust Root** across chat, storage, AI, and steganography
+* **Verifiable AI** using formal math/physics validation
+* **Steganographic Security Layers** beyond conventional encryption
+* **Self‑destruct and mutation mechanisms** for sensitive data
+* **No mandatory external services**
+
+---
+
+## High‑Level Architecture
+
 ```
 
-> ⚠️ No templates or static folders required. The UI is fully embedded in `message.py`.
+                      ┌─────────────────────────┐
+                      │       ZYLO UNIFIED      │
+                      │    System Orchestrator  │
+                      └───────────┬─────────────┘
+                                  │
+        ┌───────────────┬─────────┼─────────┬───────────────┐
+        │               │                   │               │
+┌───────▼────────┐ ┌────▼───────┐   ┌───────▼───────┐ ┌─────▼───────┐
+│   ZYLO LINK    │ │ ZYLO CLOUD │   │   ZYLO VEIL   │ │  ZYLO RiG0R │
+│ Secure Chat    │ │ Private FS │   │ Stego/Crypto  │ │ Verification│
+│ + AI Interface │ │ Offline    │   │ Destructive   │ │ Math/Physics│
+└────────────────┘ └────────────┘   └───────────────┘ └─────────────┘
+
+
+```
 
 ---
 
-## 🏁 Getting Started
+## Feature Deep Dive
 
-### 1️⃣ Clone the Repository
+### 1. ZYLO LINK (`chat.py`)
+A real-time, persistent communication layer.
+*   **Protocol**: Socket.IO based real-time messaging.
+*   **AI Integration**: Built-in access to LLMs (Groq/Llama) via `@Assistant` mentions.
+*   **Security**: Local SQLite storage, user authentication.
+*   **UX**: "Glassmorphism" design, typing indicators, read receipts, file sharing, avatar cropping.
+
+### 2. ZYLO CLOUD (`Cloud_Storage.py`)
+A self-hosted, private file vault.
+*   **Storage**: Direct interface to local encrypted partitions or external media (SD cards/USBs).
+*   **Management**: Full file system operations (Upload, Download, Preview, Delete, Mkdir).
+*   **Access Control**: Simple passphrase-based locking mechanism.
+*   **Performance**: Streaming uploads/downloads, efficient directory listing.
+
+### 3. ZYLO VEIL (`ZYLOVEIL.py`)
+Advanced steganography and data hiding.
+*   **Shamir Secret Sharing**: Splits data across multiple carrier images; $k$ out of $n$ carriers are needed to recover the data.
+*   **Stateless Mode**: Deterministic embedding that requires no side-channel storage.
+*   **Anti-Forensics**: adaptive noise injection to mimic camera sensor noise and defeat statistical steganalysis.
+*   **Destructive Security**:
+    *   **Time Locking**: Data accessible only within specific time windows.
+    *   **Self-Destruct**: Carrier images degrade or destroy data upon excessive failed extraction attempts.
+    *   **Bit-Plane Migration**: Encoding shifts over time, rendering old copies useless.
+
+### 4. ZYLO RiG0R (`ZYlO_RiG0R.py`)
+A formal verification engine for AI outputs.
+*   **Mode A (Tool Mode)**: Forces the AI to write executable Python/SymPy code to mathematically prove its answers.
+*   **Mode B (Direct Answer)**: For purely theoretical concepts.
+*   **Verification**: Automatically runs generated code in a sandbox to validate results against the AI's claims.
+*   **Confidence Calibration**: Assigns reliability scores to answers based on verification success.
+
+---
+
+## Intended Use Cases
+
+* Research into **secure, self‑contained AI systems**
+* Private communication and data storage environments
+* Cryptography and steganography experimentation
+* AI output verification and trust calibration
+* Educational exploration of advanced system design
+
+---
+
+## Project Status
+
+**Experimental / Research‑Grade**
+
+This project is:
+
+* not production‑hardened
+* not audited for real‑world adversaries
+* intended for research, learning, and controlled environments
+
+Security claims are **architectural**, not guarantees.
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+*   Python 3.10+
+*   System libraries for `Pillow` and `Cryptography` (often requires `build-essential`, `libjpeg-dev`, `zlib1g-dev`).
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/UjanGuin/ZYLO-UNIFIED
+cd ZYLO-UNIFIED
+```
+
+### 2. Install Dependencies
+Run:
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configuration
+The system relies on environment variables for API keys and configuration. Create a `.env` file or export them:
 
 ```bash
-git clone https://github.com/your-username/ZYLO-LINK.git
-cd ZYLO-LINK
+# General
+export ZYLO_SECRET_KEY="your_super_secret_key"
+
+# ZYLO LINK (AI Chat)
+export GROQ_API_KEY="gsk_..."  # Optional, falls back to internal key
+
+# ZYLO RiG0R (Compute)
+export CEREBRAS_API_KEY="csk-..."
+export OSS_SERVER_DATA="./oss_server_data"
 ```
 
-### 2️⃣ Install Dependencies
+*Note: Some keys are hardcoded in the source for development convenience (`7149` for Cloud password, dev keys for AI). **Change these immediately for any real deployment.***
+
+### 4. Run the Platform
+The main entry point is `app.py`, which utilizes `socketio` to run the server.
 
 ```bash
-pip install flask flask-socketio eventlet werkzeug requests
+python app.py
 ```
 
-### 3️⃣ Run the Application
-
-```bash
-python message.py
-```
-
-### 4️⃣ Open in Browser
-
-```text
-http://127.0.0.1:5000
-```
+By default, the server runs on **port 5001**:
+👉 **Access the Dashboard:** [http://localhost:5001](http://localhost:5001)
 
 ---
 
-## 🔑 Groq API Key Setup
+## Usage
 
-ZYLO LINK uses **Groq LLMs** for AI-assisted chat. You must provide your own API key.
+Once running, navigate to the landing page. You will see three main cards and a hidden access point:
 
-1. Generate a key from:
-   [https://console.groq.com/keys](https://console.groq.com/keys)
-
-2. Replace "paste_your_api_key_here" with your API key.
-
-```python
-# ---------------------------
-# AI Configuration
-# ---------------------------
-GROQ_DEFAULT_KEY = "paste_your_api_key_here"
-GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-AI_MODEL = "llama-3.1-8b-instant"
-AI_BOT_ID = "AI_ASSISTANT"
-AI_BOT_NAME = "Assistant"
-AI_AVATAR_URL = "https://img.icons8.com/fluency/96/bot.png"
-```
+1.  **ZYLO AI**: Opens the modal to access **RiG0R** (Research Engine).
+2.  **ZYLO LINK**: Opens the secure chat application.
+3.  **ZYLO CLOUD**: Opens the file storage vault.
+4.  **ZYLO VEIL**: Accessed via a **secret gesture** on the landing page (click/drag on the subtitle "Unified Digital Intelligence" more than 100px) or directly at `/veil`.
 
 ---
 
@@ -194,102 +260,19 @@ if __name__ == "__main__":
 
 ---
 
-## 🔐 Authentication Model
+## License
 
-* Users are auto-registered on first login
-* Each user receives a unique **10-character ID**
-* IDs are used to:
-
-  * Start private chats
-  * Add members to group chats
-* No cloud-based authentication required
+This project is released under an open‑source license. See `LICENSE` for details.
 
 ---
 
-## 💬 Chat System
-
-* One-to-one private messaging
-* Group chats with:
-
-  * Member addition
-  * Chat renaming
-  * Chat deletion
-* System-generated messages for chat events
-* Message history auto-loaded on room join
-
----
-
-## 📎 File Upload System
-
-* Inline image preview
-* Embedded video playback
-* Downloadable file cards
-* Upload progress indicator
-* MIME-type–aware rendering
-
----
-
-## 🖼️ Avatar System
-
-* Profile picture upload
-* Real-time avatar updates across all chats
-* Cache-busting for instant refresh
-
----
-
-## ⚙️ Configuration
-
-Edit inside `message.py`:
-
-```python
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
-app.config['UPLOAD_FOLDER'] = 'uploads'
-```
-
----
-
-## 🛡️ Security Notes
-
-* Designed for local or trusted environments
-* Passwords are stored in plain text (prototype scope)
-* For production use:
-
-  * Add password hashing (bcrypt / argon2)
-  * Enable HTTPS (reverse proxy)
-  * Harden file upload validation
-
----
-
-## 📦 Deployment
-
-ZYLO LINK can run on:
-
-* Local machines
-* LAN servers
-* VPS environments
-* Android (Termux)
-* Docker containers
-
-No external services are required beyond an optional Groq API key.
-
----
-
-## 📜 License
-
-This project is licensed under the **MIT License**.
-
----
-
-## 👤 Author
+## Author
 
 **Swapnanil Guin**
-Student • Developer • System Architect
-Part of the **ZYLO Ecosystem**
+Independent researcher and system designer
 
 ---
 
-## ⭐ Final Words
+## Disclaimer
 
-ZYLO LINK proves that **high-quality, real-time communication systems can be built independently**, without cloud lock-in or heavyweight frameworks.
-
-If this project helped you, consider giving it a ⭐ on GitHub.
+ZYLO UNIFIED is a **research platform**. Do not deploy in high‑risk or regulated environments without independent security review. The implementations of cryptographic primitives and steganography are for educational and experimental purposes.
